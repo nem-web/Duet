@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "612532336953",
+    "project_id": "affiliate-63f05",
+    "storage_bucket": "affiliate-63f05.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:612532336953:android:14ea7c6691ca9d394e10e8",
+        "android_client_info": {
+          "package_name": "com.aistudio.duet.kxmpzq"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBho8rluUo9QLA1pCxBil0Z7JncpUR3hEs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

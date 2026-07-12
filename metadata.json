@@ -1,0 +1,6 @@
+{
+  "name": "Duet",
+  "description": "A beautiful shared space for couples to stay connected, sync calendars, share moments, and grow together.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
