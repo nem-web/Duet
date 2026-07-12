@@ -27,8 +27,8 @@ android {
     applicationId = "com.aistudio.duet.kxmpzq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = 2
+    versionName = "1.0.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -73,9 +73,7 @@ android {
         "proguard-rules.pro"
       )
 
-      if (keystoreProperties.isNotEmpty()) {
-        signingConfig = signingConfigs.getByName("release")
-      }
+      signingConfig = signingConfigs.getByName("release")
     }
   }
 

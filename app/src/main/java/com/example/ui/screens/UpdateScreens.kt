@@ -54,6 +54,9 @@ fun AppUpdateDialog(viewModel: DuetViewModel) {
         is UpdateState.UpdateAvailable -> {
             val info = state.info
             val isMandatory = info.isMandatory(UpdateManager.getInstalledVersionCode(context))
+            LaunchedEffect(info) {
+                android.util.Log.d("UpdateScreens", "APP_UPDATE: Showing dialog")
+            }
             Dialog(
                 onDismissRequest = {
                     if (!isMandatory) {
@@ -161,7 +164,10 @@ fun AppUpdateDialog(viewModel: DuetViewModel) {
                             }
                             
                             Button(
-                                onClick = { viewModel.downloadAndPrepareUpdate(info) },
+                                onClick = {
+                                    android.util.Log.d("UpdateScreens", "APP_UPDATE: User clicked Update")
+                                    viewModel.downloadAndPrepareUpdate(info)
+                                },
                                 modifier = Modifier.weight(1f).testTag("update_now_btn")
                             ) {
                                 Row(
