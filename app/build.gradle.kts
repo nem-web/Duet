@@ -104,6 +104,7 @@ dependencies {
   implementation(libs.firebase.ai)
   // Uncomment to use Firestore:
   implementation(libs.firebase.firestore)
+  implementation(libs.firebase.storage)
 
   // Firebase Auth with Google Sign-In requires all of the following to be uncommented together.
   // If you are using Firebase Auth with other providers (e.g. Email/Password), you may only need

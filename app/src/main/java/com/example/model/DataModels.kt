@@ -18,7 +18,9 @@ data class Couple(
     val user2Uid: String = "",
     val pairCode: String = "",
     val relationshipStartDate: String? = null, // YYYY-MM-DD
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val user1Typing: Boolean = false,
+    val user2Typing: Boolean = false
 )
 
 data class CalendarEvent(
@@ -160,7 +162,10 @@ data class EncryptedMessage(
     val encryptedText: String = "",
     val encryptedMediaUrl: String? = null,
     val mediaType: String = "text", // "text", "image", "voice"
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val reaction: String? = null,
+    val seen: Boolean = false,
+    val delivered: Boolean = true
 )
 
 data class Story(

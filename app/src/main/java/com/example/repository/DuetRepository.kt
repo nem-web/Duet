@@ -136,11 +136,42 @@ class DuetRepository(private val context: Context) {
             putString("water_state_date", java.time.LocalDate.now().toString())
             apply()
         }
+        try {
+            com.example.widget.Water1x1WidgetProvider.refreshAllWaterWidgets(context)
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to refresh water widgets", e)
+        }
+    }
+
+    private fun saveTodosToPrefs(list: List<TodoItem>) {
+        try {
+            val arr = org.json.JSONArray()
+            list.forEach { item ->
+                val json = org.json.JSONObject().apply {
+                    put("todoId", item.todoId)
+                    put("title", item.title)
+                    put("isCompleted", item.isCompleted)
+                    put("createdBy", item.createdBy)
+                    put("createdAt", item.createdAt)
+                }
+                arr.put(json)
+            }
+            prefs.edit().putString("cached_todos_json", arr.toString()).apply()
+            Log.d(tag, "Saved ${list.size} todos to cached_todos_json")
+            try {
+                com.example.widget.Todo2x2WidgetProvider.triggerRefresh(context)
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to refresh todo widgets", e)
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to save cached todos", e)
+        }
     }
 
     // Firebase references
     private var auth: FirebaseAuth? = null
     private var firestore: FirebaseFirestore? = null
+    private var storage: com.google.firebase.storage.FirebaseStorage? = null
     private var userListener: ListenerRegistration? = null
     private var partnerListener: ListenerRegistration? = null
     
@@ -216,6 +247,15 @@ class DuetRepository(private val context: Context) {
                 setupRealFirebaseListeners(currentUid)
             }
         }
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                _todos.collect { list ->
+                    saveTodosToPrefs(list)
+                }
+            } catch (e: Exception) {
+                Log.e(tag, "Error collecting todos in init", e)
+            }
+        }
     }
 
     private fun checkFirebase() {
@@ -225,8 +265,9 @@ class DuetRepository(private val context: Context) {
             if (app != null) {
                 auth = FirebaseAuth.getInstance()
                 firestore = FirebaseFirestore.getInstance()
+                storage = com.google.firebase.storage.FirebaseStorage.getInstance()
                 _isFirebaseInitialized.value = true
-                Log.d(tag, "Firebase initialized successfully.")
+                Log.d(tag, "Firebase initialized successfully with Storage.")
             }
         } catch (e: Exception) {
             Log.w(tag, "Firebase app is not initialized. Falling back to configuration guidance mode.")
@@ -892,7 +933,7 @@ class DuetRepository(private val context: Context) {
         )
         
         val notification = androidx.core.app.NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(com.example.R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(message)
             .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
@@ -1311,7 +1352,7 @@ class DuetRepository(private val context: Context) {
                 
                 val uploadSuccess = withContext(Dispatchers.IO) {
                     // Save couple state
-                    val stateStr = serializeCoupleSyncState(completedCouple, emptyList(), emptyList(), emptyList(), emptyList())
+                    val stateStr = serializeCoupleSyncState(completedCouple, emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
                     val s1 = kvdbPut("couple_${coupleId}_state", stateStr)
                     // Write link notification back for User A
                     val s2 = kvdbPut("paircode_${code}_linked", coupleToJson(completedCouple).toString())
@@ -1989,7 +2030,7 @@ class DuetRepository(private val context: Context) {
     }
 
     // --- ALARM REMINDER SYSTEM UTILS ---
-    fun scheduleWaterReminder(startHour: Int = 8, endHour: Int = 22, intervalHours: Int = 2) {
+    fun scheduleWaterReminder(startHour: Int = 8, endHour: Int = 22, intervalHours: Int = 2, force: Boolean = false) {
         try {
             // Save settings to SharedPreferences
             prefs.edit().apply {
@@ -2001,6 +2042,20 @@ class DuetRepository(private val context: Context) {
 
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val intent = Intent(context, WaterReminderReceiver::class.java)
+            
+            // Check if alarm already exists
+            val existingIntent = PendingIntent.getBroadcast(
+                context,
+                2002,
+                intent,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            if (!force && existingIntent != null) {
+                Log.d("WaterReminder", "Water reminder alarm already scheduled, skipping reschedule.")
+                return
+            }
+
             val pendingIntent = PendingIntent.getBroadcast(
                 context,
                 2002,
@@ -2008,20 +2063,74 @@ class DuetRepository(private val context: Context) {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            // Trigger alarm in 5 seconds for immediate test verification
-            val triggerAtMillis = System.currentTimeMillis() + 5000L
-            
+            // Compute actual dynamic trigger time instead of a 5-second test alarm!
+            val calendar = java.util.Calendar.getInstance()
+            val currentHour = calendar.get(java.util.Calendar.HOUR_OF_DAY)
+            val currentMinute = calendar.get(java.util.Calendar.MINUTE)
+
+            val targetGoal = prefs.getInt("water_target_ml", 2000)
+            val stateDate = prefs.getString("water_state_date", "")
+            val todayStr = java.time.LocalDate.now().toString()
+            val currentIntake = if (stateDate == todayStr) prefs.getInt("water_intake_ml", 0) else 0
+            val remainingMl = (targetGoal - currentIntake).coerceAtLeast(0)
+
+            val isSleepTime = currentHour >= endHour || currentHour < startHour
+
+            val triggerAtMillis: Long
+            val debugMsg: String
+
+            if (isSleepTime) {
+                // Sleep window: Schedule for the startHour of awake tomorrow (or today if early morning)
+                val nextAlarmCalendar = java.util.Calendar.getInstance().apply {
+                    if (get(java.util.Calendar.HOUR_OF_DAY) >= endHour) {
+                        add(java.util.Calendar.DAY_OF_YEAR, 1)
+                    }
+                    set(java.util.Calendar.HOUR_OF_DAY, startHour)
+                    set(java.util.Calendar.MINUTE, 0)
+                    set(java.util.Calendar.SECOND, 0)
+                    set(java.util.Calendar.MILLISECOND, 0)
+                }
+                triggerAtMillis = nextAlarmCalendar.timeInMillis
+                debugMsg = "Sleep time detected. Scheduled next reminder for wake time: ${nextAlarmCalendar.time}"
+            } else {
+                if (remainingMl <= 0) {
+                    // Target completed! Schedule for 4 hours from now
+                    val intervalMs = 4 * 60 * 60 * 1000L
+                    triggerAtMillis = System.currentTimeMillis() + intervalMs
+                    debugMsg = "Goal already met today! Next reminder scheduled in 4 hours."
+                } else {
+                    // Compute smart interval based on target progress and hours left until sleep
+                    val portionsNeeded = remainingMl / 250.0 // assuming a 250ml cup size
+                    val hoursRemaining = (endHour - (currentHour + currentMinute / 60.0)).coerceAtLeast(1.0)
+                    
+                    val calculatedIntervalHours = if (portionsNeeded > 0) {
+                        hoursRemaining / portionsNeeded
+                    } else {
+                        2.0
+                    }
+                    
+                    // Limit reminder interval between 30 minutes and 4 hours to avoid spamming
+                    val finalIntervalHours = calculatedIntervalHours.coerceIn(0.5, 4.0)
+                    val intervalMs = (finalIntervalHours * 60 * 60 * 1000L).toLong()
+                    triggerAtMillis = System.currentTimeMillis() + intervalMs
+                    debugMsg = "Smart interval calculated: $finalIntervalHours hours ($remainingMl ml remaining in $hoursRemaining awake hours)."
+                }
+            }
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (alarmManager.canScheduleExactAlarms()) {
-                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-                    Log.d("WaterReminder", "Exact test alarm scheduled for 5 seconds from now.")
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+                    Log.d("WaterReminder", "Exact alarm scheduled with allow-while-idle: $debugMsg")
                 } else {
-                    alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-                    Log.d("WaterReminder", "Inexact test alarm scheduled (lack permission).")
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+                    Log.d("WaterReminder", "Inexact alarm scheduled with allow-while-idle: $debugMsg")
                 }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+                Log.d("WaterReminder", "Exact alarm scheduled with allow-while-idle (older API): $debugMsg")
             } else {
                 alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-                Log.d("WaterReminder", "Exact test alarm scheduled on older API.")
+                Log.d("WaterReminder", "Exact alarm scheduled: $debugMsg")
             }
         } catch (e: Exception) {
             Log.e("WaterReminder", "Error scheduling alarm: ${e.message}")
@@ -2877,12 +2986,39 @@ class DuetRepository(private val context: Context) {
         }
     }
 
+    private fun storyToJson(item: Story): JSONObject {
+        val json = JSONObject()
+        json.put("storyId", item.storyId)
+        json.put("coupleId", item.coupleId)
+        json.put("userId", item.userId)
+        json.put("userName", item.userName)
+        json.put("mediaType", item.mediaType)
+        json.put("textContent", item.textContent)
+        json.put("mediaUrl", item.mediaUrl)
+        json.put("timestamp", item.timestamp)
+        return json
+    }
+
+    private fun jsonToStory(json: JSONObject): Story {
+        return Story(
+            storyId = json.optString("storyId", ""),
+            coupleId = json.optString("coupleId", ""),
+            userId = json.optString("userId", ""),
+            userName = json.optString("userName", ""),
+            mediaType = json.optString("mediaType", "text"),
+            textContent = json.optString("textContent", ""),
+            mediaUrl = if (json.isNull("mediaUrl")) null else json.optString("mediaUrl"),
+            timestamp = json.optLong("timestamp", System.currentTimeMillis())
+        )
+    }
+
     private fun serializeCoupleSyncState(
         couple: Couple,
         events: List<CalendarEvent>,
         todos: List<TodoItem>,
         todoComments: List<TodoComment>,
-        waterComments: List<WaterComment>
+        waterComments: List<WaterComment>,
+        stories: List<Story>
     ): String {
         val root = JSONObject()
         root.put("couple", coupleToJson(couple))
@@ -2902,6 +3038,10 @@ class DuetRepository(private val context: Context) {
         val waterCommentsArr = JSONArray()
         waterComments.forEach { waterCommentsArr.put(waterCommentToJson(it)) }
         root.put("waterComments", waterCommentsArr)
+
+        val storiesArr = JSONArray()
+        stories.forEach { storiesArr.put(storyToJson(it)) }
+        root.put("stories", storiesArr)
         
         return root.toString()
     }
@@ -2943,8 +3083,16 @@ class DuetRepository(private val context: Context) {
                     waterCommentsList.add(jsonToWaterComment(waterCommentsArr.getJSONObject(i)))
                 }
             }
+
+            val storiesList = mutableListOf<Story>()
+            val storiesArr = root.optJSONArray("stories")
+            if (storiesArr != null) {
+                for (i in 0 until storiesArr.length()) {
+                    storiesList.add(jsonToStory(storiesArr.getJSONObject(i)))
+                }
+            }
             
-            CoupleSyncState(couple, eventsList, todosList, commentsList, waterCommentsList)
+            CoupleSyncState(couple, eventsList, todosList, commentsList, waterCommentsList, storiesList)
         } catch (e: Exception) {
             Log.e(tag, "parseCoupleSyncState error: ${e.message}")
             CoupleSyncState()
@@ -3106,7 +3254,7 @@ class DuetRepository(private val context: Context) {
                         }
                     }
                     
-                    // Fetch and Sync Shared Couple State (Events, Todos, Comments)
+                    // Fetch and Sync Shared Couple State (Events, Todos, Comments, Stories)
                     val coupleStateStr = kvdbGet("couple_${coupleObj.coupleId}_state")
                     if (coupleStateStr != null && coupleStateStr.isNotEmpty()) {
                         try {
@@ -3139,16 +3287,27 @@ class DuetRepository(private val context: Context) {
                                 demoWaterComments.clear()
                                 demoWaterComments.addAll(mergedWaterComments)
                                 _waterComments.value = mergedWaterComments.filter { it.date == LocalDate.now().toString() }
+
+                                // Merge stories
+                                val twentyFourHoursAgo = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+                                val mergedStories = (demoStories + remoteCoupleState.stories)
+                                    .distinctBy { it.storyId }
+                                    .filter { it.timestamp >= twentyFourHoursAgo }
+                                    .sortedBy { it.timestamp }
+                                demoStories.clear()
+                                demoStories.addAll(mergedStories)
+                                _stories.value = mergedStories
                             }
                             
                             // Re-upload merged state if there were any new local items that were not present in remote state
                             val anyNewLocal = demoEvents.any { de -> remoteCoupleState.events.none { re -> re.eventId == de.eventId } } ||
                                               demoTodos.any { dt -> remoteCoupleState.todos.none { rt -> rt.todoId == dt.todoId } } ||
                                               demoTodoComments.any { dc -> remoteCoupleState.todoComments.none { rc -> rc.commentId == dc.commentId } } ||
-                                              demoWaterComments.any { dw -> remoteCoupleState.waterComments.none { rw -> rw.commentId == dw.commentId } }
+                                              demoWaterComments.any { dw -> remoteCoupleState.waterComments.none { rw -> rw.commentId == dw.commentId } } ||
+                                              demoStories.any { ds -> remoteCoupleState.stories.none { rs -> rs.storyId == ds.storyId } }
                             
                             if (anyNewLocal) {
-                                val stateStr = serializeCoupleSyncState(coupleObj, demoEvents, demoTodos, demoTodoComments, demoWaterComments)
+                                val stateStr = serializeCoupleSyncState(coupleObj, demoEvents, demoTodos, demoTodoComments, demoWaterComments, demoStories)
                                 kvdbPut("couple_${coupleObj.coupleId}_state", stateStr)
                             }
                         } catch (e: Exception) {
@@ -3156,12 +3315,12 @@ class DuetRepository(private val context: Context) {
                         }
                     } else {
                         // If couple_state is completely empty/deleted on the server, upload our current local state to initialize it
-                        val stateStr = serializeCoupleSyncState(coupleObj, demoEvents, demoTodos, demoTodoComments, demoWaterComments)
+                        val stateStr = serializeCoupleSyncState(coupleObj, demoEvents, demoTodos, demoTodoComments, demoWaterComments, demoStories)
                         kvdbPut("couple_${coupleObj.coupleId}_state", stateStr)
                     }
                 }
                 
-                kotlinx.coroutines.delay(4500) // Poll every 4.5 seconds for extremely smooth UX
+                kotlinx.coroutines.delay(1500) // Poll every 1.5 seconds for extremely snappy, real-time chat & stories UX
             }
         }
     }
@@ -3189,6 +3348,11 @@ class DuetRepository(private val context: Context) {
                 demoWaterComments.clear()
                 demoWaterComments.addAll(syncState.waterComments)
                 _waterComments.value = syncState.waterComments.filter { it.date == LocalDate.now().toString() }
+
+                val twentyFourHoursAgo = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+                demoStories.clear()
+                demoStories.addAll(syncState.stories.filter { it.timestamp >= twentyFourHoursAgo })
+                _stories.value = demoStories.sortedBy { it.timestamp }
                 
                 // Fetch partner profile
                 val partnerUid = if (coupleObj.user1Uid == currentUid) coupleObj.user2Uid else coupleObj.user1Uid
@@ -3208,18 +3372,192 @@ class DuetRepository(private val context: Context) {
         }
     }
 
+    private fun isBase64String(str: String): Boolean {
+        if (str.startsWith("data:")) return true
+        if (str.length < 100) return false
+        return try {
+            android.util.Base64.decode(str, android.util.Base64.DEFAULT)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun compressImageUri(uri: android.net.Uri): ByteArray? {
+        return try {
+            val options = android.graphics.BitmapFactory.Options()
+            options.inJustDecodeBounds = true
+            var inputStream = context.contentResolver.openInputStream(uri)
+            android.graphics.BitmapFactory.decodeStream(inputStream, null, options)
+            inputStream?.close()
+            
+            if (options.outWidth <= 0 || options.outHeight <= 0) return null
+            
+            val reqWidth = 1280
+            val reqHeight = 1280
+            var inSampleSize = 1
+            if (options.outHeight > reqHeight || options.outWidth > reqWidth) {
+                val halfHeight = options.outHeight / 2
+                val halfWidth = options.outWidth / 2
+                while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
+                    inSampleSize *= 2
+                }
+            }
+            
+            val decodeOptions = android.graphics.BitmapFactory.Options()
+            decodeOptions.inSampleSize = inSampleSize
+            inputStream = context.contentResolver.openInputStream(uri)
+            val decodedBitmap = android.graphics.BitmapFactory.decodeStream(inputStream, null, decodeOptions)
+            inputStream?.close()
+            
+            if (decodedBitmap == null) return null
+            
+            val maxDimension = 1280
+            val width = decodedBitmap.width
+            val height = decodedBitmap.height
+            val resized = if (width > maxDimension || height > maxDimension) {
+                val ratio = width.toFloat() / height.toFloat()
+                val newWidth: Int
+                val newHeight: Int
+                if (width > height) {
+                    newWidth = maxDimension
+                    newHeight = (maxDimension / ratio).toInt()
+                } else {
+                    newHeight = maxDimension
+                    newWidth = (maxDimension * ratio).toInt()
+                }
+                android.graphics.Bitmap.createScaledBitmap(decodedBitmap, newWidth, newHeight, true)
+            } else {
+                decodedBitmap
+            }
+            
+            val outputStream = java.io.ByteArrayOutputStream()
+            resized.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, outputStream)
+            val bytes = outputStream.toByteArray()
+            
+            if (resized != decodedBitmap) {
+                resized.recycle()
+            }
+            decodedBitmap.recycle()
+            bytes
+        } catch (e: Exception) {
+            Log.e(tag, "Error compressing image uri: ${e.message}", e)
+            null
+        }
+    }
+
+    private fun getMediaBytes(uriString: String, mediaType: String): ByteArray? {
+        return try {
+            val uri = android.net.Uri.parse(uriString)
+            if (mediaType == "image") {
+                compressImageUri(uri) ?: context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            } else {
+                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Error reading media bytes from uri: ${e.message}", e)
+            null
+        }
+    }
+
+    private suspend fun uploadBytesToStorage(coupleId: String, bytes: ByteArray, mediaType: String): String? {
+        val storageRef = storage ?: return null
+        return withContext(Dispatchers.IO) {
+            try {
+                val extension = if (mediaType == "image") "jpg" else "mp4"
+                val contentType = if (mediaType == "image") "image/jpeg" else "video/mp4"
+                val fileName = "stories/${UUID.randomUUID()}.$extension"
+                val fileRef = storageRef.reference.child("couples/$coupleId/$fileName")
+                
+                val metadata = com.google.firebase.storage.StorageMetadata.Builder()
+                    .setContentType(contentType)
+                    .build()
+
+                val uploadTask = fileRef.putBytes(bytes, metadata)
+                Tasks.await(uploadTask)
+                val downloadUrlTask = fileRef.downloadUrl
+                val downloadUri = Tasks.await(downloadUrlTask)
+                downloadUri.toString()
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to upload bytes to Firebase Storage: ${e.message}", e)
+                null
+            }
+        }
+    }
+
+    private suspend fun uploadMediaToStorage(coupleId: String, mediaUrl: String, mediaType: String): String? {
+        val storageRef = storage ?: return null
+        return try {
+            val (bytes, extension, contentType) = when {
+                mediaUrl.startsWith("data:image/jpeg;base64,") -> {
+                    val base64Data = mediaUrl.substringAfter("data:image/jpeg;base64,")
+                    val decoded = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                    Triple(decoded, "jpg", "image/jpeg")
+                }
+                mediaUrl.startsWith("data:image/png;base64,") -> {
+                    val base64Data = mediaUrl.substringAfter("data:image/png;base64,")
+                    val decoded = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                    Triple(decoded, "png", "image/png")
+                }
+                mediaUrl.startsWith("data:audio/3gp;base64,") || mediaUrl.startsWith("data:audio/3gpp;base64,") || mediaUrl.startsWith("data:audio/amr;base64,") -> {
+                    val base64Data = mediaUrl.substringAfter("base64,")
+                    val decoded = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                    Triple(decoded, "3gp", "audio/3gpp")
+                }
+                mediaType == "voice" -> {
+                    val base64Data = if (mediaUrl.contains("base64,")) mediaUrl.substringAfter("base64,") else mediaUrl
+                    val decoded = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                    Triple(decoded, "3gp", "audio/3gpp")
+                }
+                else -> {
+                    val decoded = android.util.Base64.decode(mediaUrl, android.util.Base64.DEFAULT)
+                    Triple(decoded, "jpg", "image/jpeg")
+                }
+            }
+
+            val fileName = "chat_media/${UUID.randomUUID()}.$extension"
+            val fileRef = storageRef.reference.child("couples/$coupleId/$fileName")
+            
+            val metadata = com.google.firebase.storage.StorageMetadata.Builder()
+                .setContentType(contentType)
+                .build()
+
+            withContext(Dispatchers.IO) {
+                val uploadTask = fileRef.putBytes(bytes, metadata)
+                Tasks.await(uploadTask)
+                val downloadUrlTask = fileRef.downloadUrl
+                val downloadUri = Tasks.await(downloadUrlTask)
+                downloadUri.toString()
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to upload media to Firebase Storage: ${e.message}", e)
+            null
+        }
+    }
+
     suspend fun sendChatMessage(text: String, mediaUrl: String? = null, mediaType: String = "text"): Result<EncryptedMessage> {
         val currentUid = _currentUser.value?.uid ?: return Result.failure(Exception("User not authenticated"))
         val coupleObj = _couple.value ?: return Result.failure(Exception("You must be paired to chat"))
         
+        var finalMediaUrl = mediaUrl
+        if (!_isDemoMode.value && mediaUrl != null && isBase64String(mediaUrl)) {
+            val uploadedUrl = uploadMediaToStorage(coupleObj.coupleId, mediaUrl, mediaType)
+            if (uploadedUrl != null) {
+                finalMediaUrl = uploadedUrl
+            } else {
+                Log.w(tag, "Failed to upload to Firebase Storage, falling back to sending base64-encoded media payload.")
+                finalMediaUrl = mediaUrl
+            }
+        }
+
         val encryptedText = if (text.isNotBlank()) {
             com.example.util.CryptoUtils.encrypt(text, coupleObj.coupleId)
         } else {
             ""
         }
         
-        val encryptedMediaUrl = if (mediaUrl != null && mediaUrl.isNotBlank()) {
-            com.example.util.CryptoUtils.encrypt(mediaUrl, coupleObj.coupleId)
+        val encryptedMediaUrl = if (finalMediaUrl != null && finalMediaUrl.isNotBlank()) {
+            com.example.util.CryptoUtils.encrypt(finalMediaUrl, coupleObj.coupleId)
         } else {
             null
         }
@@ -3255,6 +3593,118 @@ class DuetRepository(private val context: Context) {
         }
     }
 
+    suspend fun reactToMessage(messageId: String, reaction: String): Result<Boolean> {
+        val coupleObj = _couple.value ?: return Result.failure(Exception("You must be paired to react"))
+        return if (_isDemoMode.value) {
+            val index = demoChatMessages.indexOfFirst { it.messageId == messageId }
+            if (index != -1) {
+                demoChatMessages[index] = demoChatMessages[index].copy(reaction = reaction)
+                _chatMessages.value = demoChatMessages.toList()
+                Result.success(true)
+            } else {
+                val listIndex = _chatMessages.value.indexOfFirst { it.messageId == messageId }
+                if (listIndex != -1) {
+                    val updatedList = _chatMessages.value.toMutableList()
+                    updatedList[listIndex] = updatedList[listIndex].copy(reaction = reaction)
+                    _chatMessages.value = updatedList
+                    Result.success(true)
+                } else {
+                    Result.failure(Exception("Message not found"))
+                }
+            }
+        } else {
+            val db = firestore ?: return Result.failure(Exception("Firestore not available"))
+            try {
+                withContext(Dispatchers.IO) {
+                    Tasks.await(
+                        db.collection("couples").document(coupleObj.coupleId)
+                            .collection("chat_messages").document(messageId)
+                            .update("reaction", reaction)
+                    )
+                }
+                Result.success(true)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun setTypingStatus(isTyping: Boolean): Result<Unit> {
+        val coupleObj = _couple.value ?: return Result.failure(Exception("Not paired"))
+        val currentUid = _currentUser.value?.uid ?: return Result.failure(Exception("Not authenticated"))
+        
+        if (_isDemoMode.value) {
+            val updatedCouple = if (currentUid == coupleObj.user1Uid) {
+                coupleObj.copy(user1Typing = isTyping)
+            } else {
+                coupleObj.copy(user2Typing = isTyping)
+            }
+            _couple.value = updatedCouple
+            
+            // Upload immediately to KVDB so the partner sees it instantly!
+            withContext(Dispatchers.IO) {
+                val stateStr = serializeCoupleSyncState(updatedCouple, demoEvents, demoTodos, demoTodoComments, demoWaterComments, demoStories)
+                kvdbPut("couple_${coupleObj.coupleId}_state", stateStr)
+            }
+            return Result.success(Unit)
+        } else {
+            val db = firestore ?: return Result.failure(Exception("Firestore not available"))
+            try {
+                val field = if (currentUid == coupleObj.user1Uid) "user1Typing" else "user2Typing"
+                withContext(Dispatchers.IO) {
+                    Tasks.await(db.collection("couples").document(coupleObj.coupleId).update(field, isTyping))
+                }
+                return Result.success(Unit)
+            } catch (e: Exception) {
+                return Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun markMessagesAsSeen(): Result<Unit> {
+        val coupleObj = _couple.value ?: return Result.failure(Exception("Not paired"))
+        val currentUid = _currentUser.value?.uid ?: return Result.failure(Exception("Not authenticated"))
+        val partnerUid = if (currentUid == coupleObj.user1Uid) coupleObj.user2Uid else coupleObj.user1Uid
+        
+        if (_isDemoMode.value) {
+            var updated = false
+            demoChatMessages.forEachIndexed { index, msg ->
+                if (msg.senderId == partnerUid && !msg.seen) {
+                    demoChatMessages[index] = msg.copy(seen = true)
+                    updated = true
+                }
+            }
+            if (updated) {
+                _chatMessages.value = demoChatMessages.toList()
+            }
+            return Result.success(Unit)
+        } else {
+            val db = firestore ?: return Result.failure(Exception("Firestore not available"))
+            try {
+                withContext(Dispatchers.IO) {
+                    val unreadQuery = db.collection("couples")
+                        .document(coupleObj.coupleId)
+                        .collection("chat_messages")
+                        .whereEqualTo("senderId", partnerUid)
+                        .whereEqualTo("seen", false)
+                        .get()
+                    
+                    val snapshot = Tasks.await(unreadQuery)
+                    if (!snapshot.isEmpty) {
+                        val batch = db.batch()
+                        for (doc in snapshot.documents) {
+                            batch.update(doc.reference, "seen", true)
+                        }
+                        Tasks.await(batch.commit())
+                    }
+                }
+                return Result.success(Unit)
+            } catch (e: Exception) {
+                return Result.failure(e)
+            }
+        }
+    }
+
     suspend fun clearChatMessages(): Result<Unit> {
         val coupleObj = _couple.value ?: return Result.failure(Exception("You must be paired"))
         return if (_isDemoMode.value) {
@@ -3277,10 +3727,64 @@ class DuetRepository(private val context: Context) {
         }
     }
 
+    suspend fun receiveDemoChatMessage(text: String): Result<EncryptedMessage> {
+        val coupleObj = _couple.value ?: return Result.failure(Exception("Not paired"))
+        val currentUid = _currentUser.value?.uid ?: return Result.failure(Exception("Not authenticated"))
+        val partnerUid = if (currentUid == coupleObj.user1Uid) coupleObj.user2Uid else coupleObj.user1Uid
+        
+        val encryptedText = com.example.util.CryptoUtils.encrypt(text, coupleObj.coupleId)
+        val message = EncryptedMessage(
+            messageId = java.util.UUID.randomUUID().toString(),
+            coupleId = coupleObj.coupleId,
+            senderId = partnerUid,
+            encryptedText = encryptedText,
+            mediaType = "text",
+            timestamp = System.currentTimeMillis(),
+            seen = false,
+            delivered = true
+        )
+        demoChatMessages.add(message)
+        _chatMessages.value = demoChatMessages.toList()
+        return Result.success(message)
+    }
+
     suspend fun addStory(mediaType: String, textContent: String, mediaUrl: String? = null): Result<Story> {
         val currentUid = _currentUser.value?.uid ?: return Result.failure(Exception("User not authenticated"))
         val coupleObj = _couple.value ?: return Result.failure(Exception("You must be paired to post a story"))
         val userName = _currentUser.value?.name ?: "Partner"
+
+        var finalMediaUrl = mediaUrl
+        if (mediaUrl != null && (mediaUrl.startsWith("content://") || mediaUrl.startsWith("file://") || mediaUrl.startsWith("/"))) {
+            val bytes = getMediaBytes(mediaUrl, mediaType)
+            if (bytes != null) {
+                if (_isDemoMode.value) {
+                    if (mediaType == "image") {
+                        val base64String = android.util.Base64.encodeToString(bytes, android.util.Base64.DEFAULT).trim()
+                        finalMediaUrl = "data:image/jpeg;base64,$base64String"
+                    } else {
+                        // Keep original URI for video locally, fallback handles it for partner in UI
+                        finalMediaUrl = mediaUrl
+                    }
+                } else {
+                    val uploadedUrl = uploadBytesToStorage(coupleObj.coupleId, bytes, mediaType)
+                    if (uploadedUrl != null) {
+                        finalMediaUrl = uploadedUrl
+                    } else {
+                        // Fallback to avoid error
+                        if (mediaType == "image") {
+                            Log.w(tag, "Failed to upload to Firebase Storage, falling back to base64 encoding")
+                            val base64String = android.util.Base64.encodeToString(bytes, android.util.Base64.DEFAULT).trim()
+                            finalMediaUrl = "data:image/jpeg;base64,$base64String"
+                        } else {
+                            Log.w(tag, "Failed to upload to Firebase Storage, falling back to beautiful landscape video loop")
+                            finalMediaUrl = "https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-sunlight-529-large.mp4"
+                        }
+                    }
+                }
+            } else {
+                return Result.failure(Exception("Failed to read media content from device"))
+            }
+        }
 
         val story = Story(
             storyId = java.util.UUID.randomUUID().toString(),
@@ -3289,14 +3793,21 @@ class DuetRepository(private val context: Context) {
             userName = userName,
             mediaType = mediaType,
             textContent = textContent,
-            mediaUrl = mediaUrl,
+            mediaUrl = finalMediaUrl,
             timestamp = System.currentTimeMillis()
         )
 
         return if (_isDemoMode.value) {
             demoStories.add(story)
             val twentyFourHoursAgo = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
-            _stories.value = demoStories.filter { it.timestamp >= twentyFourHoursAgo }.sortedBy { it.timestamp }
+            val sortedList = demoStories.filter { it.timestamp >= twentyFourHoursAgo }.sortedBy { it.timestamp }
+            _stories.value = sortedList
+            
+            // Upload immediately to KVDB so the partner gets it instantly!
+            withContext(Dispatchers.IO) {
+                val stateStr = serializeCoupleSyncState(coupleObj, demoEvents, demoTodos, demoTodoComments, demoWaterComments, sortedList)
+                kvdbPut("couple_${coupleObj.coupleId}_state", stateStr)
+            }
             Result.success(story)
         } else {
             val db = firestore ?: return Result.failure(Exception("Firestore not available"))
@@ -3309,6 +3820,37 @@ class DuetRepository(private val context: Context) {
                     )
                 }
                 Result.success(story)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun deleteStory(storyId: String): Result<Unit> {
+        val coupleObj = _couple.value ?: return Result.failure(Exception("You must be paired to delete a story"))
+        return if (_isDemoMode.value) {
+            demoStories.removeAll { it.storyId == storyId }
+            val twentyFourHoursAgo = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+            val sortedList = demoStories.filter { it.timestamp >= twentyFourHoursAgo }.sortedBy { it.timestamp }
+            _stories.value = sortedList
+            
+            // Upload immediately to KVDB so partner state stays synced!
+            withContext(Dispatchers.IO) {
+                val stateStr = serializeCoupleSyncState(coupleObj, demoEvents, demoTodos, demoTodoComments, demoWaterComments, sortedList)
+                kvdbPut("couple_${coupleObj.coupleId}_state", stateStr)
+            }
+            Result.success(Unit)
+        } else {
+            val db = firestore ?: return Result.failure(Exception("Firestore not available"))
+            try {
+                withContext(Dispatchers.IO) {
+                    Tasks.await(
+                        db.collection("couples").document(coupleObj.coupleId)
+                            .collection("stories").document(storyId)
+                            .delete()
+                    )
+                }
+                Result.success(Unit)
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -3331,6 +3873,7 @@ class DuetRepository(private val context: Context) {
         val events: List<CalendarEvent> = emptyList(),
         val todos: List<TodoItem> = emptyList(),
         val todoComments: List<TodoComment> = emptyList(),
-        val waterComments: List<WaterComment> = emptyList()
+        val waterComments: List<WaterComment> = emptyList(),
+        val stories: List<Story> = emptyList()
     )
 }

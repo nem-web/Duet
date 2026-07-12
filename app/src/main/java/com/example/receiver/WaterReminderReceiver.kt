@@ -49,15 +49,28 @@ class WaterReminderReceiver : BroadcastReceiver() {
 
         val remainingMl = (targetGoal - currentIntake).coerceAtLeast(0)
         
-        // Dynamic notification text reflecting the actual target progress
+        val calendar = Calendar.getInstance()
+        val currentHour = calendar.get(Calendar.HOUR_OF_DAY)
+        val currentMinute = calendar.get(Calendar.MINUTE)
+
+        val startHour = prefs.getInt("water_start_hour", 8)
+        val endHour = prefs.getInt("water_end_hour", 22)
+
+        val hoursRemaining = (endHour - (currentHour + currentMinute / 60.0)).coerceAtLeast(1.0)
+        val remainingSipsCount = (hoursRemaining * 2.0).coerceAtLeast(1.0)
+        val rawSip = (remainingMl / remainingSipsCount).coerceIn(100.0, 350.0)
+        val calculatedSip = ((rawSip / 50.0).toInt() * 50).coerceIn(100, 350)
+        val sipSize = if (remainingMl < calculatedSip) remainingMl else calculatedSip
+        
+        // Dynamic notification text reflecting the actual target progress and recommended sip size
         val notificationText = if (remainingMl <= 0) {
             "You have achieved your hydration goal of $targetGoal ml today! Outstanding work! 🎉"
         } else {
-            "You have $remainingMl ml remaining to reach your goal of $targetGoal ml. Take a sip now! 💧"
+            "Take a sip of $sipSize ml now! You have $remainingMl ml remaining to reach your goal of $targetGoal ml today. 💧"
         }
 
         val notification = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(com.example.R.drawable.ic_launcher_foreground)
             .setContentTitle("Duet Hydration Alert! 💧")
             .setContentText(notificationText)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -77,13 +90,6 @@ class WaterReminderReceiver : BroadcastReceiver() {
                 nextIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-
-            val calendar = Calendar.getInstance()
-            val currentHour = calendar.get(Calendar.HOUR_OF_DAY)
-            val currentMinute = calendar.get(Calendar.MINUTE)
-
-            val startHour = prefs.getInt("water_start_hour", 8)
-            val endHour = prefs.getInt("water_end_hour", 22)
 
             val isSleepTime = currentHour >= endHour || currentHour < startHour
 
@@ -112,7 +118,6 @@ class WaterReminderReceiver : BroadcastReceiver() {
                 } else {
                     // Compute smart interval based on target progress and hours left until sleep
                     val portionsNeeded = remainingMl / 250.0 // assuming a 250ml cup size
-                    val hoursRemaining = (endHour - (currentHour + currentMinute / 60.0)).coerceAtLeast(1.0)
                     
                     val intervalHours = if (portionsNeeded > 0) {
                         hoursRemaining / portionsNeeded
@@ -130,10 +135,12 @@ class WaterReminderReceiver : BroadcastReceiver() {
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (alarmManager.canScheduleExactAlarms()) {
-                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtMillis, nextPendingIntent)
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, nextPendingIntent)
                 } else {
-                    alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, nextPendingIntent)
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, nextPendingIntent)
                 }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, nextPendingIntent)
             } else {
                 alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtMillis, nextPendingIntent)
             }

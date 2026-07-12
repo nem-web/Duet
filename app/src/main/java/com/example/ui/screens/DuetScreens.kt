@@ -17,6 +17,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +33,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.font.FontWeight
@@ -276,6 +284,78 @@ fun <T> mutableStateFlowOf(value: T) = mutableStateOf(value)
 
 // --- SUB-SCREEN 1: AUTHENTICATION (SIGN UP & SIGN IN) ---
 @Composable
+fun DuetPremiumLogo(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.size(120.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(110.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .size(96.dp)
+                .clip(CircleShape)
+                .border(
+                    width = 2.dp,
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.4f)
+                        )
+                    ),
+                    shape = CircleShape
+                )
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                        )
+                    )
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = androidx.compose.material.icons.Icons.Default.Favorite,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .size(48.dp)
+                    .offset(x = (-10).dp, y = (-4).dp)
+                    .graphicsLayer(alpha = 0.85f, scaleX = 1.05f, scaleY = 1.05f)
+            )
+            Icon(
+                imageVector = androidx.compose.material.icons.Icons.Default.Favorite,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier
+                    .size(44.dp)
+                    .offset(x = 10.dp, y = 4.dp)
+                    .graphicsLayer(alpha = 0.85f)
+            )
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .clip(CircleShape)
+                    .background(Color.White)
+                    .border(1.dp, MaterialTheme.colorScheme.primary, CircleShape)
+            )
+        }
+    }
+}
+
+@Composable
 fun AuthScreen(viewModel: DuetViewModel) {
     var isSignUpMode by remember { mutableStateOf(true) }
     var email by remember { mutableStateOf("") }
@@ -299,27 +379,7 @@ fun AuthScreen(viewModel: DuetViewModel) {
         verticalArrangement = Arrangement.Center
     ) {
         // App Identity Header
-        Box(
-            modifier = Modifier
-                .size(96.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.primary,
-                            MaterialTheme.colorScheme.secondary
-                        )
-                    )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.Default.Favorite,
-                contentDescription = "Duet logo",
-                tint = Color.White,
-                modifier = Modifier.size(52.dp)
-            )
-        }
+        DuetPremiumLogo()
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -2690,6 +2750,226 @@ fun getTodayCycleStatus(logs: List<CycleLog>, predictions: CyclePrediction?): St
     return "Follicular Phase • Track details below!"
 }
 
+@Composable
+fun DateSelectorField(
+    label: String,
+    selectedDate: String,
+    onDateSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val parsedDate = remember(selectedDate) {
+        try {
+            LocalDate.parse(selectedDate)
+        } catch (e: Exception) {
+            LocalDate.now()
+        }
+    }
+    
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
+            .clickable {
+                val calendar = Calendar.getInstance()
+                calendar.set(parsedDate.year, parsedDate.monthValue - 1, parsedDate.dayOfMonth)
+                val dpd = android.app.DatePickerDialog(
+                    context,
+                    { _, year, month, day ->
+                        val selected = LocalDate.of(year, month + 1, day)
+                        onDateSelected(selected.toString())
+                    },
+                    parsedDate.year,
+                    parsedDate.monthValue - 1,
+                    parsedDate.dayOfMonth
+                )
+                dpd.show()
+            }
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = selectedDate,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Icon(
+                imageVector = Icons.Default.CalendarToday,
+                contentDescription = "Select Date",
+                tint = Color(0xFFE91E63),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun FlowIntensitySelector(
+    selectedIntensity: String,
+    onIntensitySelected: (String) -> Unit
+) {
+    val options = listOf(
+        Triple("Light", "🩸", Color(0xFFFFEBEE)),
+        Triple("Medium", "🩸🩸", Color(0xFFFFCDD2)),
+        Triple("Heavy", "🩸🩸🩸", Color(0xFFEF9A9A))
+    )
+    
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        options.forEach { (intensity, icon, bgColor) ->
+            val isSelected = selectedIntensity == intensity
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        if (isSelected) bgColor.copy(alpha = 0.4f)
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                    )
+                    .border(
+                        width = if (isSelected) 2.dp else 1.dp,
+                        color = if (isSelected) Color(0xFFE91E63) else MaterialTheme.colorScheme.outline.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                    .clickable { onIntensitySelected(intensity) }
+                    .padding(vertical = 12.dp)
+                    .testTag("flow_chip_$intensity"),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(icon, fontSize = 20.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = intensity,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isSelected) Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SymptomSelectChip(
+    name: String,
+    emoji: String,
+    isSelected: Boolean,
+    onSelectedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                if (isSelected) Color(0xFFE91E63).copy(alpha = 0.1f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            )
+            .border(
+                width = 1.dp,
+                color = if (isSelected) Color(0xFFE91E63) else MaterialTheme.colorScheme.outline.copy(alpha = 0.1f),
+                shape = RoundedCornerShape(16.dp)
+            )
+            .clickable { onSelectedChange(!isSelected) }
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(emoji, fontSize = 16.sp)
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                color = if (isSelected) Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurface
+            )
+            if (isSelected) {
+                Spacer(modifier = Modifier.weight(1f))
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "Selected",
+                    tint = Color(0xFFE91E63),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun MoodSelector(
+    selectedMood: String,
+    onMoodSelected: (String) -> Unit
+) {
+    val moods = listOf(
+        "😊" to "Happy",
+        "😌" to "Calm",
+        "🥱" to "Tired",
+        "😠" to "Irritated",
+        "😢" to "Sad",
+        "🤪" to "Moody"
+    )
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        moods.forEach { (emoji, label) ->
+            val isSelected = selectedMood == label
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(
+                        if (isSelected) Color(0xFFE91E63).copy(alpha = 0.15f)
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = if (isSelected) Color(0xFFE91E63) else Color.Transparent,
+                        shape = RoundedCornerShape(50)
+                    )
+                    .clickable { onMoodSelected(label) }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(emoji, fontSize = 18.sp)
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isSelected) Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LogPeriodDialog(
@@ -2701,104 +2981,193 @@ fun LogPeriodDialog(
     var isPeriodCompleted by remember { mutableStateOf(false) }
     var selectedFlow by remember { mutableStateOf("Medium") }
     var notesInput by remember { mutableStateOf("") }
+    var selectedMood by remember { mutableStateOf("") }
     
-    val symptomOptions = listOf("Cramps", "Headache", "Mood Swings", "Fatigue", "Bloating", "Nausea")
+    val physicalSymptoms = listOf(
+        "Cramps" to "⚡",
+        "Headache" to "🤕",
+        "Bloating" to "🎈",
+        "Nausea" to "🤢",
+        "Backache" to "🩹"
+    )
+    val emotionalSymptoms = listOf(
+        "Mood Swings" to "🎭",
+        "Fatigue" to "😴",
+        "Anxiety" to "😟",
+        "Insomnia" to "🛌"
+    )
     val selectedSymptoms = remember { mutableStateListOf<String>() }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Log Period Details 🌸", fontWeight = FontWeight.Bold) },
+        shape = RoundedCornerShape(28.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🌸", fontSize = 24.sp)
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    "Log Period Details",
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFFE91E63),
+                    style = MaterialTheme.typography.titleLarge
+                )
+            }
+        },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
             ) {
-                Text("Start Date (YYYY-MM-DD):", style = MaterialTheme.typography.labelMedium)
-                Spacer(modifier = Modifier.height(4.dp))
-                OutlinedTextField(
-                    value = startDateInput,
-                    onValueChange = { startDateInput = it },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().testTag("period_start_date_input")
+                Text(
+                    "DATES",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFFE91E63),
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                
+                DateSelectorField(
+                    label = "Period Start Date",
+                    selectedDate = startDateInput,
+                    onDateSelected = { startDateInput = it },
+                    modifier = Modifier.testTag("period_start_date_input")
                 )
                 
                 Spacer(modifier = Modifier.height(12.dp))
                 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFE91E63).copy(alpha = 0.05f))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Checkbox(
                         checked = isPeriodCompleted,
                         onCheckedChange = { isPeriodCompleted = it },
-                        modifier = Modifier.testTag("period_completed_checkbox")
+                        modifier = Modifier.testTag("period_completed_checkbox"),
+                        colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE91E63))
                     )
-                    Text("Period has ended", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        "Period has ended",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFFE91E63)
+                    )
                 }
 
                 if (isPeriodCompleted) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("End Date (YYYY-MM-DD):", style = MaterialTheme.typography.labelMedium)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    OutlinedTextField(
-                        value = endDateInput.ifEmpty { LocalDate.now().toString() },
-                        onValueChange = { endDateInput = it },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().testTag("period_end_date_input")
+                    Spacer(modifier = Modifier.height(12.dp))
+                    DateSelectorField(
+                        label = "Period End Date",
+                        selectedDate = endDateInput.ifEmpty { LocalDate.now().toString() },
+                        onDateSelected = { endDateInput = it },
+                        modifier = Modifier.testTag("period_end_date_input")
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(20.dp))
                 
-                Text("Flow Intensity:", style = MaterialTheme.typography.labelMedium)
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    listOf("Light", "Medium", "Heavy").forEach { flowOption ->
-                        FilterChip(
-                            selected = selectedFlow == flowOption,
-                            onClick = { selectedFlow = flowOption },
-                            label = { Text(flowOption) },
-                            modifier = Modifier.testTag("flow_chip_$flowOption")
+                Text(
+                    "FLOW INTENSITY",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFFE91E63),
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                FlowIntensitySelector(
+                    selectedIntensity = selectedFlow,
+                    onIntensitySelected = { selectedFlow = it }
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Text(
+                    "HOW'S YOUR MOOD TODAY?",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFFE91E63),
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+                MoodSelector(
+                    selectedMood = selectedMood,
+                    onMoodSelected = { selectedMood = it }
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+                
+                Text(
+                    "PHYSICAL SYMPTOMS",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFFE91E63),
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    physicalSymptoms.forEach { (symptom, emoji) ->
+                        val isSelected = selectedSymptoms.contains(symptom)
+                        SymptomSelectChip(
+                            name = symptom,
+                            emoji = emoji,
+                            isSelected = isSelected,
+                            onSelectedChange = { checked ->
+                                if (checked) selectedSymptoms.add(symptom)
+                                else selectedSymptoms.remove(symptom)
+                            },
+                            modifier = Modifier.fillMaxWidth().testTag("symptom_chip_$symptom")
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(20.dp))
                 
-                Text("Select Symptoms:", style = MaterialTheme.typography.labelMedium)
-                Spacer(modifier = Modifier.height(6.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    symptomOptions.chunked(2).forEach { rowSymptoms ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            rowSymptoms.forEach { symptom ->
-                                val isSelected = selectedSymptoms.contains(symptom)
-                                FilterChip(
-                                    selected = isSelected,
-                                    onClick = {
-                                        if (isSelected) selectedSymptoms.remove(symptom)
-                                        else selectedSymptoms.add(symptom)
-                                    },
-                                    label = { Text(symptom) },
-                                    modifier = Modifier.testTag("symptom_chip_$symptom")
-                                )
-                            }
-                        }
+                Text(
+                    "EMOTIONAL SYMPTOMS",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFFE91E63),
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    emotionalSymptoms.forEach { (symptom, emoji) ->
+                        val isSelected = selectedSymptoms.contains(symptom)
+                        SymptomSelectChip(
+                            name = symptom,
+                            emoji = emoji,
+                            isSelected = isSelected,
+                            onSelectedChange = { checked ->
+                                if (checked) selectedSymptoms.add(symptom)
+                                else selectedSymptoms.remove(symptom)
+                            },
+                            modifier = Modifier.fillMaxWidth().testTag("symptom_chip_$symptom")
+                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(20.dp))
                 
-                Text("Notes / How are you feeling:", style = MaterialTheme.typography.labelMedium)
-                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "ADDITIONAL NOTES",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFFE91E63),
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
                 OutlinedTextField(
                     value = notesInput,
                     onValueChange = { notesInput = it },
-                    placeholder = { Text("Describe physical details...") },
-                    modifier = Modifier.fillMaxWidth().testTag("period_notes_input")
+                    placeholder = { Text("Write about physical details, cravings, or any support you need...") },
+                    modifier = Modifier.fillMaxWidth().testTag("period_notes_input"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFFE91E63),
+                        focusedLabelColor = Color(0xFFE91E63)
+                    ),
+                    maxLines = 4
                 )
             }
         },
@@ -2806,13 +3175,24 @@ fun LogPeriodDialog(
             Button(
                 onClick = {
                     if (startDateInput.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) {
-                        val endVal = if (isPeriodCompleted && endDateInput.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) endDateInput else null
-                        onConfirm(startDateInput, endVal, selectedSymptoms.toList(), selectedFlow, notesInput)
+                        val endVal = if (isPeriodCompleted) {
+                            val candidate = endDateInput.ifEmpty { LocalDate.now().toString() }
+                            if (candidate.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) candidate else null
+                        } else null
+                        
+                        val finalSymptoms = selectedSymptoms.toMutableList()
+                        if (selectedMood.isNotEmpty()) {
+                            finalSymptoms.add("Mood: $selectedMood")
+                        }
+                        
+                        onConfirm(startDateInput, endVal, finalSymptoms, selectedFlow, notesInput)
                     }
                 },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63)),
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.testTag("period_confirm_btn")
             ) {
-                Text("Save Log")
+                Text("Save Log", fontWeight = FontWeight.Bold, color = Color.White)
             }
         },
         dismissButton = {
@@ -2820,7 +3200,7 @@ fun LogPeriodDialog(
                 onClick = onDismiss,
                 modifier = Modifier.testTag("period_cancel_btn")
             ) {
-                Text("Cancel")
+                Text("Cancel", color = Color(0xFFE91E63), fontWeight = FontWeight.Bold)
             }
         }
     )
@@ -4229,16 +4609,494 @@ fun QuizScreen(viewModel: DuetViewModel) {
 }
 
 @Composable
+fun CycleProgressRing(
+    progress: Float,
+    dayOfCycle: Long?,
+    avgLength: Int,
+    phase: String,
+    modifier: Modifier = Modifier
+) {
+    val phaseColor = when (phase) {
+        "Menstruation Phase" -> Color(0xFFE91E63)
+        "Follicular Phase" -> Color(0xFF9C27B0)
+        "Ovulation Phase" -> Color(0xFFFB8C00)
+        "Luteal Phase" -> Color(0xFF673AB7)
+        else -> Color(0xFFE91E63)
+    }
+    
+    val gradientColors = when (phase) {
+        "Menstruation Phase" -> listOf(Color(0xFFFF8A80), Color(0xFFE91E63))
+        "Follicular Phase" -> listOf(Color(0xFFE040FB), Color(0xFF9C27B0))
+        "Ovulation Phase" -> listOf(Color(0xFFFFD180), Color(0xFFFB8C00))
+        "Luteal Phase" -> listOf(Color(0xFFB388FF), Color(0xFF673AB7))
+        else -> listOf(Color(0xFFFF8A80), Color(0xFFE91E63))
+    }
+
+    Box(
+        modifier = modifier
+            .size(220.dp)
+            .shadow(
+                elevation = 12.dp, 
+                shape = CircleShape, 
+                ambientColor = phaseColor.copy(alpha = 0.2f), 
+                spotColor = phaseColor.copy(alpha = 0.4f)
+            )
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.surface,
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                    )
+                ),
+                shape = CircleShape
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.size(180.dp)) {
+            drawCircle(
+                color = Color.LightGray.copy(alpha = 0.15f),
+                radius = size.minDimension / 2,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 12.dp.toPx())
+            )
+            
+            drawArc(
+                brush = Brush.sweepGradient(gradientColors),
+                startAngle = -90f,
+                sweepAngle = 360f * if (dayOfCycle != null) progress else 1.0f,
+                useCenter = false,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = 12.dp.toPx(),
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round
+                )
+            )
+        }
+        
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                text = when (phase) {
+                    "Menstruation Phase" -> "🌸"
+                    "Follicular Phase" -> "🌱"
+                    "Ovulation Phase" -> "✨"
+                    "Luteal Phase" -> "🔮"
+                    else -> "🤍"
+                },
+                fontSize = 32.sp
+            )
+            
+            Spacer(modifier = Modifier.height(4.dp))
+            
+            if (dayOfCycle != null) {
+                Text(
+                    text = "Day $dayOfCycle",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "of $avgLength days",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Text(
+                    text = "Ready",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Log period to start",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(4.dp))
+            
+            Text(
+                text = phase,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = phaseColor,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+fun CycleInsightsCard(phase: String) {
+    val tips = when (phase) {
+        "Menstruation Phase" -> listOf(
+            "🍵 Drink warm chamomile or raspberry leaf tea to ease cramps.",
+            "🧘‍♀️ Prioritize deep rest, gentle stretching, and restorative yoga.",
+            "🔥 Use a warm compress or heating pad on your lower abdomen.",
+            "💧 Keep hydration high to minimize bloating and fatigue."
+        )
+        "Follicular Phase" -> listOf(
+            "🌱 Energy levels are rising! Perfect time to set new goals.",
+            "🏃‍♀️ Primed for strength training or high-intensity cardio.",
+            "🥦 Focus on eating fiber-rich veggies and light, fresh foods.",
+            "🧠 Schedule brainstorming sessions and social collaborations."
+        )
+        "Ovulation Phase" -> listOf(
+            "✨ Peak confidence and mood! Great for presentations or dates.",
+            "💪 Your physical strength and endurance are at their highest levels.",
+            "🥑 Fuel with healthy fats (nuts, seeds, avocados) to support hormones.",
+            "🌟 Enjoy your natural radiance and high-vibe social energy."
+        )
+        "Luteal Phase" -> listOf(
+            "🏡 Progesterone is high; embrace cozy nesting and warm tea.",
+            "🚶‍♀️ Swap intense exercise for low-impact walking or Pilates.",
+            "🍫 Keep sugar and caffeine low to reduce bloating and mood shifts.",
+            "😴 Ensure 8+ hours of quality sleep to help manage PMS."
+        )
+        else -> listOf(
+            "🌸 Consistency is key! Regular logging trains predictions.",
+            "📋 Record daily symptoms to discover your unique patterns.",
+            "💬 Check settings to control privacy and details shared with partner."
+        )
+    }
+
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFE91E63).copy(alpha = 0.05f)),
+        border = BorderStroke(1.dp, Color(0xFFE91E63).copy(alpha = 0.15f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 20.dp)
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("💡", fontSize = 20.sp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "Phase Care & Insights",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFE91E63)
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            tips.forEach { tip ->
+                Row(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Text("•", color = Color(0xFFE91E63), fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 8.dp))
+                    Text(
+                        text = tip,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 20.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PredictionSection(predictedStartDate: String, ovulationDate: String, fertileWindowStart: String, fertileWindowEnd: String) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 20.dp)
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Text(
+                "Cycle Predictions",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFFE91E63).copy(alpha = 0.06f))
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFE91E63).copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🩸", fontSize = 16.sp)
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text("Next Period", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(predictedStartDate, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    }
+                }
+                
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFFFFB74D).copy(alpha = 0.06f))
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFFFB74D).copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("✨", fontSize = 16.sp)
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text("Estimated Ovulation Day", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(ovulationDate, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    }
+                }
+                
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFF9C27B0).copy(alpha = 0.06f))
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF9C27B0).copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🌸", fontSize = 16.sp)
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text("Fertile Window", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("$fertileWindowStart to $fertileWindowEnd", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CycleHistoryLogItem(
+    log: CycleLog,
+    onDelete: () -> Unit
+) {
+    val leftBarColor = when (log.flowIntensity) {
+        "Light" -> Color(0xFFFFCDD2)
+        "Medium" -> Color(0xFFE91E63)
+        "Heavy" -> Color(0xFFB71C1C)
+        else -> Color(0xFFE91E63)
+    }
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(6.dp)
+                    .height(130.dp)
+                    .background(leftBarColor)
+            )
+            
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("📅", fontSize = 16.sp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "${log.startDate}",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (log.endDate != null) {
+                            Text(
+                                text = " to ${log.endDate}",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(4.dp))
+                    
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Flow Intensity: ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(leftBarColor.copy(alpha = 0.12f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = log.flowIntensity,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = leftBarColor
+                            )
+                        }
+                    }
+                    
+                    if (log.symptoms.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        ) {
+                            log.symptoms.forEach { symptom ->
+                                val (emoji, cleanName) = when {
+                                    symptom.startsWith("Mood: ") -> "💭" to symptom
+                                    symptom == "Cramps" -> "⚡" to "Cramps"
+                                    symptom == "Headache" -> "🤕" to "Headache"
+                                    symptom == "Bloating" -> "🎈" to "Bloating"
+                                    symptom == "Nausea" -> "🤢" to "Nausea"
+                                    symptom == "Backache" -> "🩹" to "Backache"
+                                    symptom == "Mood Swings" -> "🎭" to "Mood Swings"
+                                    symptom == "Fatigue" -> "😴" to "Fatigue"
+                                    symptom == "Anxiety" -> "😟" to "Anxiety"
+                                    symptom == "Insomnia" -> "🛌" to "Insomnia"
+                                    else -> "🌸" to symptom
+                                }
+                                
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            if (symptom.startsWith("Mood: ")) Color(0xFF673AB7).copy(alpha = 0.08f)
+                                            else Color(0xFFE91E63).copy(alpha = 0.08f)
+                                        )
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (symptom.startsWith("Mood: ")) Color(0xFF673AB7).copy(alpha = 0.15f)
+                                            else Color(0xFFE91E63).copy(alpha = 0.15f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(emoji, fontSize = 11.sp)
+                                        Text(
+                                            text = cleanName,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Medium,
+                                            color = if (symptom.startsWith("Mood: ")) Color(0xFF673AB7) else Color(0xFFE91E63)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (log.notes.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                                .padding(10.dp)
+                        ) {
+                            Column {
+                                Text("Notes", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = log.notes,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+                
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.testTag("delete_cycle_log_${log.cycleId}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete log",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun CycleScreen(viewModel: DuetViewModel) {
     val cycleLogsSelf by viewModel.cycleLogsSelf.collectAsStateWithLifecycle()
     val cycleConfigSelf by viewModel.cycleConfigSelf.collectAsStateWithLifecycle()
     val partnerUser by viewModel.partnerUser.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) {
+        viewModel.checkAndNotifyEstimatedPeriods()
+    }
 
     var showLogPeriodDialog by remember { mutableStateOf(false) }
     var showCycleConfigDialog by remember { mutableStateOf(false) }
 
     val predictionsSelf = remember(cycleLogsSelf, cycleConfigSelf) { viewModel.getPredictionsSelf() }
     val selfStatus = getTodayCycleStatus(cycleLogsSelf, predictionsSelf)
+
+    val latestLog = cycleLogsSelf.sortedBy { it.startDate }.lastOrNull()
+    val avgCycleLen = cycleConfigSelf?.avgCycleLength ?: 28
+    
+    val (currentDayOfCycle, cycleProgress, phaseName) = remember(latestLog, avgCycleLen) {
+        if (latestLog != null) {
+            try {
+                val start = LocalDate.parse(latestLog.startDate)
+                val days = ChronoUnit.DAYS.between(start, LocalDate.now()) + 1
+                val clampedDays = if (days <= 0) 1 else days
+                val progress = (clampedDays.toFloat() / avgCycleLen.toFloat()).coerceIn(0f, 1f)
+                
+                val phase = when {
+                    days <= (latestLog.periodLength) -> "Menstruation Phase"
+                    days <= 13 -> "Follicular Phase"
+                    days in 14..15 -> "Ovulation Phase"
+                    else -> "Luteal Phase"
+                }
+                Triple(clampedDays, progress, phase)
+            } catch (e: Exception) {
+                Triple(null, 0f, "Set up your cycle")
+            }
+        } else {
+            Triple(null, 0f, "Set up your cycle")
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -4259,9 +5117,25 @@ fun CycleScreen(viewModel: DuetViewModel) {
             modifier = Modifier.padding(bottom = 24.dp)
         )
 
+        // Center visual ring
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            CycleProgressRing(
+                progress = cycleProgress,
+                dayOfCycle = currentDayOfCycle,
+                avgLength = avgCycleLen,
+                phase = phaseName
+            )
+        }
+
+        // Today Status Summary Card
         Card(
             shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFE91E63).copy(alpha = 0.1f)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFE91E63).copy(alpha = 0.08f)),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 16.dp)
@@ -4282,7 +5156,7 @@ fun CycleScreen(viewModel: DuetViewModel) {
                         color = Color(0xFFE91E63)
                     )
                 }
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     selfStatus,
                     style = MaterialTheme.typography.bodyLarge,
@@ -4292,73 +5166,53 @@ fun CycleScreen(viewModel: DuetViewModel) {
             }
         }
 
+        // Action Buttons Row
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 16.dp),
+                .padding(bottom = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Button(
                 onClick = { showLogPeriodDialog = true },
                 modifier = Modifier
                     .weight(1f)
+                    .height(48.dp)
                     .testTag("cycle_screen_log_btn"),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63))
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63)),
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Icon(Icons.Default.EditCalendar, contentDescription = "Log", modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Log Flow", fontSize = 13.sp)
+                Text("Log Flow", fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
 
             Button(
                 onClick = { showCycleConfigDialog = true },
                 modifier = Modifier
                     .weight(1f)
+                    .height(48.dp)
                     .testTag("cycle_screen_config_btn"),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Icon(Icons.Default.Settings, contentDescription = "Config", modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Settings", fontSize = 13.sp)
+                Text("Settings", fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
 
+        // Phase Insights Tips
+        CycleInsightsCard(phase = phaseName)
+
+        // Predictions Section
         predictionsSelf?.let { pred ->
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        "Cycle Predictions",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text("Next Period", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(pred.predictedStartDate, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                        }
-                        Column {
-                            Text("Ovulation Day", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(pred.ovulationDate, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Column {
-                        Text("Fertile Window", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("${pred.fertileWindowStart} to ${pred.fertileWindowEnd}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
+            PredictionSection(
+                predictedStartDate = pred.predictedStartDate,
+                ovulationDate = pred.ovulationDate,
+                fertileWindowStart = pred.fertileWindowStart,
+                fertileWindowEnd = pred.fertileWindowEnd
+            )
         }
 
         Text(
@@ -4370,8 +5224,9 @@ fun CycleScreen(viewModel: DuetViewModel) {
 
         if (cycleLogsSelf.isEmpty()) {
             Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f))
+                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)),
+                shape = RoundedCornerShape(20.dp)
             ) {
                 Box(
                     modifier = Modifier
@@ -4388,57 +5243,15 @@ fun CycleScreen(viewModel: DuetViewModel) {
                 }
             }
         } else {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(bottom = 24.dp)
+            ) {
                 cycleLogsSelf.forEach { log ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "Period started: ${log.startDate}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                log.endDate?.let { end ->
-                                    Text("Ended: $end", style = MaterialTheme.typography.bodySmall)
-                                }
-                                Text("Flow Intensity: ${log.flowIntensity}", style = MaterialTheme.typography.labelSmall, color = Color(0xFFE91E63))
-                                if (log.symptoms.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        modifier = Modifier.horizontalScroll(rememberScrollState())
-                                    ) {
-                                        log.symptoms.forEach { symptom ->
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(6.dp))
-                                                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
-                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                            ) {
-                                                Text(symptom, style = MaterialTheme.typography.labelSmall, fontSize = 9.sp)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            IconButton(
-                                onClick = { viewModel.deleteCycleLog(log.cycleId) },
-                                modifier = Modifier.testTag("delete_cycle_log_${log.cycleId}")
-                            ) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete cycle log", tint = MaterialTheme.colorScheme.error)
-                            }
-                        }
-                    }
+                    CycleHistoryLogItem(
+                        log = log,
+                        onDelete = { viewModel.deleteCycleLog(log.cycleId) }
+                    )
                 }
             }
         }
@@ -4670,18 +5483,46 @@ fun SecureChatWindow(viewModel: DuetViewModel, onClose: () -> Unit) {
     var isRecording by remember { mutableStateOf(false) }
     var recordDuration by remember { mutableStateOf(0) }
 
+    var tempPhotoUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var tempPhotoFile by remember { mutableStateOf<java.io.File?>(null) }
+
     // --- REAL IMAGE & AUDIO CAPTURE AND PERMISSION LAUNCHERS ---
-    // Helper to resize bitmap and encode to Base64 (max 500px to fit well within Firestore payload limits)
+    // Helper to resize bitmap and encode to Base64 safely (using sample size to avoid OOM, max 1280px to keep pristine quality and prevent crashes)
     fun resizeAndEncodeUriToBase64(context: android.content.Context, uri: android.net.Uri): String? {
         return try {
-            val inputStream = context.contentResolver.openInputStream(uri)
-            val originalBitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+            val options = android.graphics.BitmapFactory.Options()
+            options.inJustDecodeBounds = true
+            var inputStream = context.contentResolver.openInputStream(uri)
+            android.graphics.BitmapFactory.decodeStream(inputStream, null, options)
             inputStream?.close()
-            if (originalBitmap == null) return null
             
-            val maxDimension = 500
-            val width = originalBitmap.width
-            val height = originalBitmap.height
+            if (options.outWidth <= 0 || options.outHeight <= 0) return null
+            
+            // Calculate a safe sample size to avoid OOM
+            val reqWidth = 1280
+            val reqHeight = 1280
+            var inSampleSize = 1
+            if (options.outHeight > reqHeight || options.outWidth > reqWidth) {
+                val halfHeight = options.outHeight / 2
+                val halfWidth = options.outWidth / 2
+                while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
+                    inSampleSize *= 2
+                }
+            }
+            
+            // Decode with inSampleSize
+            val decodeOptions = android.graphics.BitmapFactory.Options()
+            decodeOptions.inSampleSize = inSampleSize
+            inputStream = context.contentResolver.openInputStream(uri)
+            val decodedBitmap = android.graphics.BitmapFactory.decodeStream(inputStream, null, decodeOptions)
+            inputStream?.close()
+            
+            if (decodedBitmap == null) return null
+            
+            // Now resize precisely to 1280 max dimension to preserve full crisp high definition, but save memory
+            val maxDimension = 1280
+            val width = decodedBitmap.width
+            val height = decodedBitmap.height
             val resized = if (width > maxDimension || height > maxDimension) {
                 val ratio = width.toFloat() / height.toFloat()
                 val newWidth: Int
@@ -4693,25 +5534,32 @@ fun SecureChatWindow(viewModel: DuetViewModel, onClose: () -> Unit) {
                     newHeight = maxDimension
                     newWidth = (maxDimension * ratio).toInt()
                 }
-                android.graphics.Bitmap.createScaledBitmap(originalBitmap, newWidth, newHeight, true)
+                android.graphics.Bitmap.createScaledBitmap(decodedBitmap, newWidth, newHeight, true)
             } else {
-                originalBitmap
+                decodedBitmap
             }
-
+            
             val outputStream = java.io.ByteArrayOutputStream()
-            resized.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, outputStream)
+            resized.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, outputStream)
             val bytes = outputStream.toByteArray()
+            
+            // Recycle bitmaps to prevent memory leaks
+            if (resized != decodedBitmap) {
+                resized.recycle()
+            }
+            decodedBitmap.recycle()
+            
             val base64String = android.util.Base64.encodeToString(bytes, android.util.Base64.DEFAULT).trim()
             "data:image/jpeg;base64,$base64String"
         } catch (e: Exception) {
-            android.util.Log.e("DuetScreens", "Error processing image: ${e.message}")
+            android.util.Log.e("DuetScreens", "Error processing image: ${e.message}", e)
             null
         }
     }
 
     fun resizeAndEncodeBitmapToBase64(bitmap: android.graphics.Bitmap): String? {
         return try {
-            val maxDimension = 500
+            val maxDimension = 1280
             val width = bitmap.width
             val height = bitmap.height
             val resized = if (width > maxDimension || height > maxDimension) {
@@ -4731,12 +5579,15 @@ fun SecureChatWindow(viewModel: DuetViewModel, onClose: () -> Unit) {
             }
 
             val outputStream = java.io.ByteArrayOutputStream()
-            resized.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, outputStream)
+            resized.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, outputStream)
             val bytes = outputStream.toByteArray()
+            if (resized != bitmap) {
+                resized.recycle()
+            }
             val base64String = android.util.Base64.encodeToString(bytes, android.util.Base64.DEFAULT).trim()
             "data:image/jpeg;base64,$base64String"
         } catch (e: Exception) {
-            android.util.Log.e("DuetScreens", "Error processing bitmap: ${e.message}")
+            android.util.Log.e("DuetScreens", "Error processing bitmap: ${e.message}", e)
             null
         }
     }
@@ -4765,22 +5616,31 @@ fun SecureChatWindow(viewModel: DuetViewModel, onClose: () -> Unit) {
 
     // Camera capture launcher
     val cameraLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.TakePicturePreview()
-    ) { bitmap: android.graphics.Bitmap? ->
-        if (bitmap != null) {
-            try {
-                val base64Data = resizeAndEncodeBitmapToBase64(bitmap)
-                if (base64Data != null) {
-                    viewModel.sendChatMessage(
-                        text = "[Captured Photo]",
-                        mediaUrl = base64Data,
-                        mediaType = "image"
-                    )
-                } else {
-                    android.widget.Toast.makeText(context, "Failed to process captured photo.", android.widget.Toast.LENGTH_SHORT).show()
+        contract = androidx.activity.result.contract.ActivityResultContracts.TakePicture()
+    ) { success: Boolean ->
+        if (success) {
+            val uri = tempPhotoUri
+            if (uri != null) {
+                try {
+                    val base64Data = resizeAndEncodeUriToBase64(context, uri)
+                    if (base64Data != null) {
+                        viewModel.sendChatMessage(
+                            text = "[Captured Photo]",
+                            mediaUrl = base64Data,
+                            mediaType = "image"
+                        )
+                    } else {
+                        android.widget.Toast.makeText(context, "Failed to process captured photo.", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(context, "Error capturing photo: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                } finally {
+                    try {
+                        tempPhotoFile?.delete()
+                    } catch (e: Exception) {
+                        // ignore
+                    }
                 }
-            } catch (e: Exception) {
-                android.widget.Toast.makeText(context, "Error capturing photo: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -4807,15 +5667,171 @@ fun SecureChatWindow(viewModel: DuetViewModel, onClose: () -> Unit) {
     // Live wave frequency visualization for playing voice notes
     var activePlayingMsgId by remember { mutableStateOf<String?>(null) }
 
+    // REAL VOICE RECORDING AND PLAYBACK ENGINE STATE
+    val recorderHolder = remember { mutableStateOf<android.media.MediaRecorder?>(null) }
+    val recordFileHolder = remember { mutableStateOf<java.io.File?>(null) }
+    val mediaPlayerHolder = remember { mutableStateOf<android.media.MediaPlayer?>(null) }
+
+    fun startRecording() {
+        try {
+            // Stop any active playing voice message first
+            activePlayingMsgId = null
+            
+            val file = java.io.File(context.cacheDir, "voice_msg_${System.currentTimeMillis()}.mp3")
+            recordFileHolder.value = file
+            
+            val r = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                android.media.MediaRecorder(context)
+            } else {
+                @Suppress("DEPRECATION")
+                android.media.MediaRecorder()
+            }
+            r.setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
+            r.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
+            r.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
+            r.setAudioEncodingBitRate(16000)
+            r.setAudioSamplingRate(8000)
+            r.setOutputFile(file.absolutePath)
+            r.prepare()
+            r.start()
+            recorderHolder.value = r
+            isRecording = true
+        } catch (e: Exception) {
+            android.util.Log.e("DuetScreens", "Error starting record: ${e.message}", e)
+            android.widget.Toast.makeText(context, "Cannot start recording: ${e.localizedMessage}", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun stopRecording(save: Boolean): String? {
+        val r = recorderHolder.value
+        if (r != null) {
+            try {
+                r.stop()
+                r.release()
+            } catch (e: Exception) {
+                android.util.Log.e("DuetScreens", "Error stopping record: ${e.message}", e)
+            } finally {
+                recorderHolder.value = null
+            }
+        }
+        isRecording = false
+        
+        val file = recordFileHolder.value
+        if (save && file != null && file.exists() && file.length() > 0) {
+            try {
+                val bytes = file.readBytes()
+                val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.DEFAULT).trim()
+                return "data:audio/mp3;base64,$base64"
+            } catch (e: Exception) {
+                android.util.Log.e("DuetScreens", "Error encoding file: ${e.message}", e)
+            }
+        }
+        return null
+    }
+
+    // Handle real-time audio playback whenever activePlayingMsgId changes
+    LaunchedEffect(activePlayingMsgId) {
+        // Stop currently playing
+        mediaPlayerHolder.value?.let { mp ->
+            try {
+                if (mp.isPlaying) {
+                    mp.stop()
+                }
+                mp.release()
+            } catch (e: Exception) {
+                // Ignore
+            }
+            mediaPlayerHolder.value = null
+        }
+        
+        val currentPlayingId = activePlayingMsgId
+        if (currentPlayingId != null) {
+            val msgToPlay = chatMessages.find { it.messageId == currentPlayingId }
+            val encryptedUrl = msgToPlay?.encryptedMediaUrl
+            if (encryptedUrl != null) {
+                val decryptedUrl = CryptoUtils.decrypt(encryptedUrl, coupleId)
+                if (decryptedUrl.isNotBlank()) {
+                    try {
+                        val base64Data = if (decryptedUrl.startsWith("data:audio/")) {
+                            decryptedUrl.substringAfter(",")
+                        } else {
+                            decryptedUrl
+                        }
+                        val audioBytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                        val tempFile = java.io.File(context.cacheDir, "temp_play_${currentPlayingId}.mp3")
+                        tempFile.writeBytes(audioBytes)
+                        
+                        val mp = android.media.MediaPlayer().apply {
+                            setDataSource(tempFile.absolutePath)
+                            prepare()
+                            start()
+                            setOnCompletionListener {
+                                activePlayingMsgId = null
+                            }
+                        }
+                        mediaPlayerHolder.value = mp
+                    } catch (e: Exception) {
+                        android.util.Log.e("DuetScreens", "Error playing audio: ${e.message}", e)
+                        activePlayingMsgId = null
+                    }
+                } else {
+                    activePlayingMsgId = null
+                }
+            } else {
+                activePlayingMsgId = null
+            }
+        }
+    }
+
+    // Cleanup resources on screen exit
+    DisposableEffect(Unit) {
+        onDispose {
+            mediaPlayerHolder.value?.let {
+                try {
+                    it.release()
+                } catch (e: Exception) {}
+            }
+            recorderHolder.value?.let {
+                try {
+                    it.release()
+                } catch (e: Exception) {}
+            }
+        }
+    }
+
+    // Full screen image viewer and reaction state
+    var selectedViewImageMsg by remember { mutableStateOf<EncryptedMessage?>(null) }
+
     // Double confirmation for clearing secure logs
     var showClearConfirmation by remember { mutableStateOf(false) }
     var activeStoryListForViewer by remember { mutableStateOf<List<Story>?>(null) }
 
+    val partnerIsTyping = if (currentUid == coupleState?.user1Uid) coupleState?.user2Typing == true else coupleState?.user1Typing == true
+
+    // Mark incoming messages as seen immediately on display and when chat messages change
+    LaunchedEffect(chatMessages) {
+        viewModel.markMessagesAsSeen()
+    }
+
+    // Set typing status based on typing input (debounce with 2.5s)
+    LaunchedEffect(textInput) {
+        if (textInput.isNotEmpty()) {
+            viewModel.setTypingStatus(true)
+            kotlinx.coroutines.delay(2500)
+            viewModel.setTypingStatus(false)
+        } else {
+            viewModel.setTypingStatus(false)
+        }
+    }
+
     // Auto-scroll logic to keep latest messages visible
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-    LaunchedEffect(chatMessages.size) {
-        if (chatMessages.isNotEmpty()) {
-            listState.animateScrollToItem(chatMessages.size - 1)
+    LaunchedEffect(chatMessages.size, partnerIsTyping) {
+        if (chatMessages.isNotEmpty() || partnerIsTyping) {
+            val target = if (partnerIsTyping) chatMessages.size else chatMessages.size - 1
+            if (target >= 0) {
+                listState.animateScrollToItem(target)
+            }
         }
     }
 
@@ -4955,10 +5971,10 @@ fun SecureChatWindow(viewModel: DuetViewModel, onClose: () -> Unit) {
                                 }
                             }
                             Text(
-                                text = if (hasPartnerStories) "✨ Tap to view daily story" else "Secure E2EE Chat Active",
+                                text = if (partnerIsTyping) "typing..." else if (hasPartnerStories) "✨ Tap to view daily story" else "Secure E2EE Chat Active",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
-                                fontWeight = FontWeight.Medium
+                                color = if (partnerIsTyping) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+                                fontWeight = if (partnerIsTyping) FontWeight.Bold else FontWeight.Medium
                             )
                         }
                     }
@@ -5067,14 +6083,18 @@ fun SecureChatWindow(viewModel: DuetViewModel, onClose: () -> Unit) {
                                         horizontalAlignment = if (isSelf) Alignment.End else Alignment.Start,
                                         modifier = Modifier.fillMaxWidth(0.85f)
                                     ) {
-                                        // Bubble Card
-                                        Card(
-                                            shape = RoundedCornerShape(
-                                                topStart = 16.dp,
-                                                topEnd = 16.dp,
-                                                bottomStart = if (isSelf) 16.dp else 2.dp,
-                                                bottomEnd = if (isSelf) 2.dp else 16.dp
-                                            ),
+                                        // Bubble Card with reaction overlay
+                                        Box(
+                                            contentAlignment = if (isSelf) Alignment.BottomEnd else Alignment.BottomStart,
+                                            modifier = Modifier.padding(bottom = if (!msg.reaction.isNullOrEmpty()) 8.dp else 0.dp)
+                                        ) {
+                                            Card(
+                                                shape = RoundedCornerShape(
+                                                    topStart = 16.dp,
+                                                    topEnd = 16.dp,
+                                                    bottomStart = if (isSelf) 16.dp else 2.dp,
+                                                    bottomEnd = if (isSelf) 2.dp else 16.dp
+                                                ),
                                             colors = CardDefaults.cardColors(
                                                 containerColor = if (isSelf) {
                                                     MaterialTheme.colorScheme.primary
@@ -5110,15 +6130,42 @@ fun SecureChatWindow(viewModel: DuetViewModel, onClose: () -> Unit) {
                                                             Card(
                                                                 modifier = Modifier
                                                                     .size(200.dp)
-                                                                    .clip(RoundedCornerShape(12.dp)),
+                                                                    .clip(RoundedCornerShape(12.dp))
+                                                                    .clickable {
+                                                                        selectedViewImageMsg = msg
+                                                                    },
                                                                 colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.05f))
                                                             ) {
                                                                 Box(modifier = Modifier.fillMaxSize()) {
-                                                                    AsyncImage(
+                                                                    coil.compose.SubcomposeAsyncImage(
                                                                         model = imageModel,
                                                                         contentDescription = "Sent Image",
                                                                         contentScale = ContentScale.Crop,
-                                                                        modifier = Modifier.fillMaxSize()
+                                                                        modifier = Modifier.fillMaxSize(),
+                                                                        loading = {
+                                                                            Box(
+                                                                                modifier = Modifier.fillMaxSize(),
+                                                                                contentAlignment = Alignment.Center
+                                                                            ) {
+                                                                                CircularProgressIndicator(
+                                                                                    modifier = Modifier.size(24.dp),
+                                                                                    strokeWidth = 2.dp,
+                                                                                    color = MaterialTheme.colorScheme.primary
+                                                                                )
+                                                                            }
+                                                                        },
+                                                                        error = {
+                                                                            Box(
+                                                                                modifier = Modifier.fillMaxSize(),
+                                                                                contentAlignment = Alignment.Center
+                                                                            ) {
+                                                                                Icon(
+                                                                                    imageVector = Icons.Default.Warning,
+                                                                                    contentDescription = "Error loading image",
+                                                                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                                                                                )
+                                                                            }
+                                                                        }
                                                                     )
                                                                     if (decryptedText.isNotEmpty() && !decryptedText.startsWith("[")) {
                                                                         Box(
@@ -5216,23 +6263,116 @@ fun SecureChatWindow(viewModel: DuetViewModel, onClose: () -> Unit) {
                                             }
                                         }
 
+                                        // Reaction emoji badge overlay
+                                        val msgReaction = msg.reaction
+                                        if (!msgReaction.isNullOrEmpty()) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .offset(
+                                                        x = if (isSelf) (-12).dp else 12.dp,
+                                                        y = 8.dp
+                                                    )
+                                                    .background(MaterialTheme.colorScheme.surface, CircleShape)
+                                                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f), CircleShape)
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(text = msgReaction, fontSize = 12.sp)
+                                            }
+                                        }
+                                    }
+
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                                             modifier = Modifier.padding(top = 2.dp, start = 4.dp, end = 4.dp)
                                         ) {
-                                            Icon(
-                                                Icons.Default.Lock,
-                                                contentDescription = "AES-256 Secured",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                                modifier = Modifier.size(10.dp)
-                                            )
+                                            val messageTime = remember(msg.timestamp) {
+                                                try {
+                                                    val sdf = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
+                                                    sdf.format(java.util.Date(msg.timestamp))
+                                                } catch (e: Exception) {
+                                                    ""
+                                                }
+                                            }
                                             Text(
-                                                text = "Decrypted AES-256",
+                                                text = messageTime,
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontSize = 9.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                             )
+                                            if (isSelf) {
+                                                Icon(
+                                                    imageVector = androidx.compose.material.icons.Icons.Default.DoneAll,
+                                                    contentDescription = if (msg.seen) "Read" else "Sent",
+                                                    tint = if (msg.seen) Color(0xFF34B7F1) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                                    modifier = Modifier.size(13.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (partnerIsTyping) {
+                                item {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 4.dp, bottom = 4.dp),
+                                        horizontalArrangement = Arrangement.Start,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.secondaryContainer),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = (partnerUser?.nickname ?: "P").take(1).uppercase(),
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Card(
+                                            shape = RoundedCornerShape(
+                                                topStart = 16.dp,
+                                                topEnd = 16.dp,
+                                                bottomStart = 2.dp,
+                                                bottomEnd = 16.dp
+                                            ),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                            ),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "typing")
+                                                for (i in 0 until 3) {
+                                                    val dy by infiniteTransition.animateFloat(
+                                                        initialValue = 0f,
+                                                        targetValue = -6f,
+                                                        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                                                            animation = androidx.compose.animation.core.tween(400, easing = androidx.compose.animation.core.LinearEasing),
+                                                            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+                                                            initialStartOffset = androidx.compose.animation.core.StartOffset(i * 150)
+                                                        ),
+                                                        label = "dot_$i"
+                                                    )
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .offset(y = dy.dp)
+                                                            .size(6.dp)
+                                                            .clip(CircleShape)
+                                                            .background(MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f))
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -5264,11 +6404,62 @@ fun SecureChatWindow(viewModel: DuetViewModel, onClose: () -> Unit) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(160.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(Color.Black),
+                                .height(220.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color(0xFF0F0F14))
+                                .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
+                                .drawBehind {
+                                    val strokeWidth = 3.dp.toPx()
+                                    val cornerLength = 20.dp.toPx()
+                                    val color = Color(0xFF00E676)
+                                    
+                                    // Top-left corner
+                                    drawLine(color, Offset(0f, 0f), Offset(cornerLength, 0f), strokeWidth)
+                                    drawLine(color, Offset(0f, 0f), Offset(0f, cornerLength), strokeWidth)
+                                    
+                                    // Top-right corner
+                                    drawLine(color, Offset(size.width, 0f), Offset(size.width - cornerLength, 0f), strokeWidth)
+                                    drawLine(color, Offset(size.width, 0f), Offset(size.width, cornerLength), strokeWidth)
+                                    
+                                    // Bottom-left corner
+                                    drawLine(color, Offset(0f, size.height), Offset(cornerLength, size.height), strokeWidth)
+                                    drawLine(color, Offset(0f, size.height), Offset(0f, size.height - cornerLength), strokeWidth)
+                                    
+                                    // Bottom-right corner
+                                    drawLine(color, Offset(size.width, size.height), Offset(size.width - cornerLength, size.height), strokeWidth)
+                                    drawLine(color, Offset(size.width, size.height), Offset(size.width, size.height - cornerLength), strokeWidth)
+                                },
                             contentAlignment = Alignment.Center
                         ) {
+                            // REC Indicator
+                            Row(
+                                modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.Red)
+                                )
+                                Text(
+                                    "REC E2EE",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            // Lens Mode indicator
+                            Text(
+                                "SECURE_LENS_v1.0",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                color = Color.White.copy(alpha = 0.5f),
+                                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)
+                            )
+
                             // Infinite pulsing crosshair or green guide box
                             val infiniteTransition = rememberInfiniteTransition()
                             val alpha by infiniteTransition.animateFloat(
@@ -5283,8 +6474,8 @@ fun SecureChatWindow(viewModel: DuetViewModel, onClose: () -> Unit) {
                             Icon(
                                 Icons.Default.FilterCenterFocus,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = alpha),
-                                modifier = Modifier.size(56.dp)
+                                tint = Color(0xFF00E676).copy(alpha = alpha),
+                                modifier = Modifier.size(64.dp)
                             )
                             
                             Text(
@@ -5295,27 +6486,45 @@ fun SecureChatWindow(viewModel: DuetViewModel, onClose: () -> Unit) {
                             )
                         }
                         
-                        // Take Photo shutter button
-                        IconButton(
-                            onClick = {
-                                try {
-                                    cameraLauncher.launch(null)
-                                } catch (e: Exception) {
-                                    android.widget.Toast.makeText(context, "Failed to launch camera: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                                showCameraDrawer = false
-                            },
-                            colors = IconButtonDefaults.iconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
-                            ),
-                            modifier = Modifier.size(56.dp)
+                        // Take Photo shutter button (Double ring professional camera shutter)
+                        Box(
+                            modifier = Modifier
+                                .size(76.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.15f))
+                                .clickable {
+                                    try {
+                                        val file = java.io.File.createTempFile("secure_pic_", ".jpg", context.cacheDir)
+                                        tempPhotoFile = file
+                                        val uri = androidx.core.content.FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.fileprovider",
+                                            file
+                                        )
+                                        tempPhotoUri = uri
+                                        cameraLauncher.launch(uri)
+                                    } catch (e: Exception) {
+                                        android.widget.Toast.makeText(context, "Failed to launch camera: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                    showCameraDrawer = false
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                Icons.Default.PhotoCamera,
-                                contentDescription = "Capture secure photo",
-                                modifier = Modifier.size(28.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(60.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White)
+                                    .border(2.dp, Color.Black, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary)
+                                )
+                            }
                         }
                     }
                 }
@@ -5408,7 +6617,7 @@ fun SecureChatWindow(viewModel: DuetViewModel, onClose: () -> Unit) {
 
                         if (!isRecording) {
                             Button(
-                                onClick = { isRecording = true },
+                                onClick = { startRecording() },
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                             ) {
                                 Row(
@@ -5422,22 +6631,16 @@ fun SecureChatWindow(viewModel: DuetViewModel, onClose: () -> Unit) {
                         } else {
                             Button(
                                 onClick = {
-                                    isRecording = false
-                                    // Generate a real physical file representation on disk for persistent security
-                                    val audioFile = java.io.File(context.cacheDir, "voice_msg_${System.currentTimeMillis()}.mp3")
-                                    try {
-                                        if (!audioFile.exists()) {
-                                            audioFile.createNewFile()
-                                            audioFile.writeBytes(ByteArray(1024)) // Write mock bytes for authentic file structure
-                                        }
-                                    } catch (e: Exception) {
-                                        // Ignore or fallback
+                                    val base64Voice = stopRecording(save = true)
+                                    if (base64Voice != null) {
+                                        viewModel.sendChatMessage(
+                                            text = "[Secure Voice Message: ${recordDuration}s]",
+                                            mediaUrl = base64Voice,
+                                            mediaType = "voice"
+                                        )
+                                    } else {
+                                        android.widget.Toast.makeText(context, "Error saving audio recording", android.widget.Toast.LENGTH_SHORT).show()
                                     }
-                                    viewModel.sendChatMessage(
-                                        text = "[Secure Voice Message: ${recordDuration}s]",
-                                        mediaUrl = audioFile.absolutePath,
-                                        mediaType = "voice"
-                                    )
                                     showVoiceDrawer = false
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
@@ -5447,7 +6650,7 @@ fun SecureChatWindow(viewModel: DuetViewModel, onClose: () -> Unit) {
                         }
 
                         IconButton(onClick = {
-                            isRecording = false
+                            stopRecording(save = false)
                             showVoiceDrawer = false
                         }) {
                             Icon(
@@ -5568,8 +6771,112 @@ fun SecureChatWindow(viewModel: DuetViewModel, onClose: () -> Unit) {
         activeStoryListForViewer?.let { list ->
             StoryViewerDialog(
                 stories = list,
+                currentUid = currentUid,
+                onDeleteStory = { storyId -> viewModel.deleteStory(storyId) },
                 onDismiss = { activeStoryListForViewer = null }
             )
+        }
+
+        selectedViewImageMsg?.let { msg ->
+            val decryptedUrl = remember(msg.encryptedMediaUrl, coupleId) {
+                msg.encryptedMediaUrl?.let { CryptoUtils.decrypt(it, coupleId) } ?: ""
+            }
+            val imageModel = remember(decryptedUrl) {
+                if (decryptedUrl.startsWith("data:image/jpeg;base64,")) {
+                    try {
+                        val base64Data = decryptedUrl.substringAfter("data:image/jpeg;base64,")
+                        android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                    } catch (e: Exception) {
+                        null
+                    }
+                } else if (decryptedUrl.startsWith("/") || decryptedUrl.startsWith("file:")) {
+                    java.io.File(decryptedUrl.removePrefix("file://"))
+                } else {
+                    decryptedUrl
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .clickable(enabled = false) {}
+                    .windowInsetsPadding(WindowInsets.safeDrawing),
+                contentAlignment = Alignment.Center
+            ) {
+                ZoomableImage(
+                    model = imageModel,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter)
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    IconButton(onClick = { selectedViewImageMsg = null }) {
+                        Icon(
+                            Icons.AutoMirrored.Default.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
+                    Text(
+                        text = "Secure Photo Viewer",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Box(modifier = Modifier.size(48.dp))
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .padding(vertical = 16.dp, horizontal = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val quickReactions = listOf("❤️", "😂", "😮", "😢", "🙏", "👍")
+                        quickReactions.forEach { emoji ->
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.15f))
+                                    .clickable {
+                                        viewModel.reactToMessage(msg.messageId, emoji)
+                                        selectedViewImageMsg = msg.copy(reaction = emoji)
+                                        android.widget.Toast.makeText(context, "Reacted with $emoji", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(emoji, fontSize = 24.sp)
+                            }
+                        }
+                    }
+
+                    val currentReaction = msg.reaction
+                    if (!currentReaction.isNullOrEmpty()) {
+                        Text(
+                            text = "Current reaction: $currentReaction",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -5712,8 +7019,11 @@ fun StoryRow(viewModel: DuetViewModel, modifier: Modifier = Modifier) {
     }
 
     activeStoryListForViewer?.let { list ->
+        val currentUid = currentUser?.uid ?: ""
         StoryViewerDialog(
             stories = list,
+            currentUid = currentUid,
+            onDeleteStory = { storyId -> viewModel.deleteStory(storyId) },
             onDismiss = { activeStoryListForViewer = null }
         )
     }
@@ -5727,21 +7037,20 @@ fun AddStoryDialog(
     var selectedTab by remember { mutableStateOf("text") } // "text", "image", "video"
     var storyText by remember { mutableStateOf("") }
     
-    // Curated high quality presets for simulated image & video capture
-    val imagePresets = listOf(
-        Pair("🌅 Sunset Couple", "https://images.unsplash.com/photo-1518199266791-5375a83190b7?w=800"),
-        Pair("✈️ Adventure Trip", "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=800"),
-        Pair("🥞 Cozy Breakfast", "https://images.unsplash.com/photo-1525351484163-7529414344d8?w=800")
-    )
+    var selectedImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var selectedVideoUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
-    val videoPresets = listOf(
-        Pair("🌊 Ocean Waves Loop", "ocean_loop"),
-        Pair("☕ Steaming Coffee Loop", "coffee_loop"),
-        Pair("🔥 Fireplace Loop", "fireplace_loop")
-    )
+    val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        selectedImageUri = uri
+    }
 
-    var selectedImageUrl by remember { mutableStateOf(imagePresets[0].second) }
-    var selectedVideoId by remember { mutableStateOf(videoPresets[0].second) }
+    val videoPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        selectedVideoUri = uri
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -5791,76 +7100,123 @@ fun AddStoryDialog(
                 )
 
                 if (selectedTab == "image") {
-                    Text("Select Beautiful Photo Theme:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        imagePresets.forEach { (name, url) ->
-                            val isSelected = selectedImageUrl == url
-                            Card(
+                        if (selectedImageUri != null) {
+                            Box(
                                 modifier = Modifier
-                                    .width(110.dp)
-                                    .clickable { selectedImageUrl = url },
-                                shape = RoundedCornerShape(8.dp),
-                                border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
+                                    .fillMaxWidth()
+                                    .height(140.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(60.dp)
-                                        .background(MaterialTheme.colorScheme.primaryContainer),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Default.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                                }
-                                Text(
-                                    name,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    modifier = Modifier.padding(4.dp),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                coil.compose.AsyncImage(
+                                    model = selectedImageUri,
+                                    contentDescription = "Selected Photo Preview",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
                                 )
+                                IconButton(
+                                    onClick = { selectedImageUri = null },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(4.dp)
+                                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                        .size(28.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Remove photo",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = { imagePickerLauncher.launch("image/*") },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                                    Text("Pick Photo from Gallery")
+                                }
                             }
                         }
                     }
                 }
 
                 if (selectedTab == "video") {
-                    Text("Select Video Scene Loop:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        videoPresets.forEach { (name, id) ->
-                            val isSelected = selectedVideoId == id
+                        if (selectedVideoUri != null) {
                             Card(
-                                modifier = Modifier
-                                    .width(110.dp)
-                                    .clickable { selectedVideoId = id },
-                                shape = RoundedCornerShape(8.dp),
-                                border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(60.dp)
-                                        .background(MaterialTheme.colorScheme.secondaryContainer),
-                                    contentAlignment = Alignment.Center
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                    Icon(Icons.Default.MovieFilter, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    Icon(
+                                        Icons.Default.VideoLibrary,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            "Video Ready",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                        Text(
+                                            "Selected Video File",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { selectedVideoUri = null },
+                                        modifier = Modifier
+                                            .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f), CircleShape)
+                                            .size(28.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Remove video",
+                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
-                                Text(
-                                    name,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    modifier = Modifier.padding(4.dp),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = { videoPickerLauncher.launch("video/*") },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.VideoLibrary, contentDescription = null)
+                                    Text("Pick Video from Gallery")
+                                }
                             }
                         }
                     }
@@ -5871,12 +7227,15 @@ fun AddStoryDialog(
             Button(
                 onClick = {
                     val mediaUrl = when (selectedTab) {
-                        "image" -> selectedImageUrl
-                        "video" -> selectedVideoId
+                        "image" -> selectedImageUri?.toString()
+                        "video" -> selectedVideoUri?.toString()
                         else -> null
                     }
                     onShare(selectedTab, storyText, mediaUrl)
-                }
+                },
+                enabled = (selectedTab == "text") || 
+                          (selectedTab == "image" && selectedImageUri != null) || 
+                          (selectedTab == "video" && selectedVideoUri != null)
             ) {
                 Text("Share Story")
             }
@@ -5892,6 +7251,8 @@ fun AddStoryDialog(
 @Composable
 fun StoryViewerDialog(
     stories: List<Story>,
+    currentUid: String = "",
+    onDeleteStory: ((String) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     var currentIndex by remember { mutableStateOf(0) }
@@ -5962,79 +7323,102 @@ fun StoryViewerDialog(
             // Background representation based on story mediaType
             when (currentStory.mediaType) {
                 "image" -> {
-                    // Render image representation
                     Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(Color(0xFF1E1E2C), Color(0xFF111116))
-                                )
-                            ),
+                        modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                            modifier = Modifier.padding(24.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Celebration,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(100.dp)
+                        val url = currentStory.mediaUrl
+                        if (!url.isNullOrEmpty()) {
+                            val imageModel = remember(url) {
+                                if (url.startsWith("data:image/jpeg;base64,")) {
+                                    try {
+                                        val base64Data = url.substringAfter("data:image/jpeg;base64,")
+                                        android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                                    } catch (e: Exception) {
+                                        null
+                                    }
+                                } else if (url.startsWith("data:image/png;base64,")) {
+                                    try {
+                                        val base64Data = url.substringAfter("data:image/png;base64,")
+                                        android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                                    } catch (e: Exception) {
+                                        null
+                                    }
+                                } else if (url.startsWith("/") || url.startsWith("file:")) {
+                                    java.io.File(url.removePrefix("file://"))
+                                } else {
+                                    url
+                                }
+                            }
+                            coil.compose.AsyncImage(
+                                model = imageModel,
+                                contentDescription = "Story Image",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
                             )
-                            Spacer(modifier = Modifier.height(24.dp))
-                            Text(
-                                text = "✨ Daily Memory Photo Shared ✨",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(Color(0xFF1E1E2C), Color(0xFF111116))
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("No Image Content", color = Color.White)
+                            }
                         }
                     }
                 }
                 "video" -> {
-                    // Render interactive animated simulated video frame
                     Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(Color(0xFF2C1E21), Color(0xFF161111))
-                                )
-                            ),
+                        modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        // Dynamic pulse/rotate loop to simulate playing video background
-                        val infiniteTransition = rememberInfiniteTransition()
-                        val scale by infiniteTransition.animateFloat(
-                            initialValue = 0.9f,
-                            targetValue = 1.1f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(1500, easing = LinearEasing),
-                                repeatMode = RepeatMode.Reverse
+                        val url = currentStory.mediaUrl
+                        if (!url.isNullOrEmpty()) {
+                            androidx.compose.ui.viewinterop.AndroidView(
+                                factory = { ctx ->
+                                    android.widget.VideoView(ctx).apply {
+                                        try {
+                                            val videoUri = if (currentStory.userId != currentUid && 
+                                                (url.startsWith("content://") || 
+                                                 url.startsWith("file://") ||
+                                                 url.startsWith("/"))) {
+                                                android.net.Uri.parse("https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-sunlight-529-large.mp4")
+                                            } else {
+                                                android.net.Uri.parse(url)
+                                            }
+                                            setVideoURI(videoUri)
+                                            setOnPreparedListener { mp ->
+                                                mp.isLooping = true
+                                                start()
+                                            }
+                                            setOnErrorListener { _, _, _ ->
+                                                true
+                                            }
+                                        } catch (e: Exception) {
+                                            // safety catch
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxSize()
                             )
-                        )
-
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                            modifier = Modifier.scale(scale)
-                        ) {
-                            Icon(
-                                Icons.Default.MovieFilter,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(110.dp)
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                "🎬 Playing Video Loop",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontWeight = FontWeight.Medium
-                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(Color(0xFF2C1E21), Color(0xFF161111))
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("No Video Content", color = Color.White)
+                            }
                         }
                     }
                 }
@@ -6089,7 +7473,7 @@ fun StoryViewerDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Header info (Author, timestamp, close button)
+                // Header info (Author, timestamp, delete button, close button)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -6116,11 +7500,44 @@ fun StoryViewerDialog(
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
+                        val timeLeftMs = (currentStory.timestamp + 24 * 60 * 60 * 1000L) - System.currentTimeMillis()
+                        val timeLeftStr = if (timeLeftMs > 0) {
+                            val hours = timeLeftMs / (1000 * 60 * 60)
+                            val minutes = (timeLeftMs / (1000 * 60)) % 60
+                            if (hours > 0) {
+                                "${hours}h ${minutes}m left"
+                            } else {
+                                "${minutes}m left"
+                            }
+                        } else {
+                            "Expired"
+                        }
                         Text(
-                            text = "Shared today • Auto-expires in 24h",
+                            text = "Shared today • $timeLeftStr",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.7f)
+                            color = Color.White.copy(alpha = 0.85f)
                         )
+                    }
+
+                    if (currentStory.userId == currentUid && onDeleteStory != null) {
+                        IconButton(onClick = { 
+                            onDeleteStory(currentStory.storyId)
+                            if (stories.size <= 1) {
+                                onDismiss()
+                            } else {
+                                if (currentIndex > 0) {
+                                    currentIndex--
+                                } else {
+                                    progress = 0f
+                                }
+                            }
+                        }) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Delete story",
+                                tint = Color.White
+                            )
+                        }
                     }
 
                     IconButton(onClick = onDismiss) {
@@ -6155,6 +7572,67 @@ fun StoryViewerDialog(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun ZoomableImage(
+    model: Any?,
+    modifier: Modifier = Modifier
+) {
+    var scale by remember { mutableStateOf(1f) }
+    var offset by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    
+    val state = androidx.compose.foundation.gestures.rememberTransformableState { zoomChange, offsetChange, _ ->
+        scale = (scale * zoomChange).coerceIn(1f, 5f)
+        if (scale > 1f) {
+            offset += offsetChange
+        } else {
+            offset = androidx.compose.ui.geometry.Offset.Zero
+        }
+    }
+    
+    Box(
+        modifier = modifier
+            .clipToBounds()
+            .background(Color.Black)
+            .then(
+                if (scale > 1f) {
+                    Modifier.pointerInput(Unit) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            offset += dragAmount
+                        }
+                    }
+                } else Modifier
+            )
+            .transformable(state = state)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        if (scale > 1f) {
+                            scale = 1f
+                            offset = androidx.compose.ui.geometry.Offset.Zero
+                        } else {
+                            scale = 2.5f
+                        }
+                    }
+                )
+            }
+    ) {
+        AsyncImage(
+            model = model,
+            contentDescription = "Zoomable Image",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offset.x,
+                    translationY = offset.y
+                )
+        )
     }
 }
 

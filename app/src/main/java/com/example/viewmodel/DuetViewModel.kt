@@ -118,6 +118,12 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: Exception) {
             android.util.Log.e("DuetViewModel", "Failed to auto-schedule water reminder: ${e.message}")
         }
+        
+        // Check for today's estimated periods on app startup
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(1000)
+            checkAndNotifyEstimatedPeriods()
+        }
     }
 
     fun selectDate(date: String) {
@@ -327,7 +333,7 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
                     showToast("Logged $amountMl ml water!")
                     triggerDemoPartnerNotification("water", "$amountMl")
                     // Auto-reschedule to update smart intervals based on new remaining target
-                    repository.scheduleWaterReminder(8, 22, 2)
+                    repository.scheduleWaterReminder(8, 22, 2, force = true)
                 },
                 onFailure = { error ->
                     showToast(error.localizedMessage ?: "Error logging water")
@@ -343,7 +349,7 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
                 onSuccess = {
                     showToast("Water log reset for today.")
                     // Auto-reschedule to reset smart intervals
-                    repository.scheduleWaterReminder(8, 22, 2)
+                    repository.scheduleWaterReminder(8, 22, 2, force = true)
                 },
                 onFailure = { error ->
                     showToast(error.localizedMessage ?: "Error resetting water")
@@ -359,7 +365,7 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
                 onSuccess = {
                     showToast("Daily goal updated!")
                     // Auto-reschedule to apply new goal in smart intervals calculation
-                    repository.scheduleWaterReminder(8, 22, 2)
+                    repository.scheduleWaterReminder(8, 22, 2, force = true)
                 },
                 onFailure = { error -> showToast("Error: ${error.localizedMessage}") }
             )
@@ -380,7 +386,7 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun scheduleWaterReminder(startHour: Int = 8, endHour: Int = 22, intervalHours: Int = 2) {
-        repository.scheduleWaterReminder(startHour, endHour, intervalHours)
+        repository.scheduleWaterReminder(startHour, endHour, intervalHours, force = true)
         showToast("Smart reminder active! Dynamic intervals calculated automatically.")
     }
 
@@ -401,7 +407,41 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
             result.fold(
                 onSuccess = {
                     showToast("Cycle period logged!")
+                    
+                    // Automatically trigger customized period start notifications to both partners but not same
+                    val current = currentUser.value
+                    val isFemale = current?.gender?.lowercase() == "female"
+                    val myNickname = current?.nickname?.ifEmpty { "Emily 💖" } ?: "Emily 💖"
+                    val partnerName = partnerUser.value?.nickname ?: "Partner"
+                    
+                    if (isFemale) {
+                        // 1. Notification to herself
+                        repository.postPartnerNotification(
+                            "🌸 Cycle Logged Successfully",
+                            "Your period log has been recorded! Take extra care of yourself today 🌸"
+                        )
+                        // 2. Notification to her partner
+                        repository.postPartnerNotification(
+                            "🩺 Cycle Tracker Update",
+                            "$myNickname has started her periods 🩸. Show her extra love and support today! ❤️"
+                        )
+                    } else {
+                        // If current user is male, maybe he logged for his partner
+                        // 1. Notification to himself
+                        repository.postPartnerNotification(
+                            "🌸 Cycle Logged Successfully",
+                            "Logged period details for $partnerName 🩸."
+                        )
+                        // 2. Notification to her
+                        repository.postPartnerNotification(
+                            "🩺 Cycle Tracker Update",
+                            "Your period details have been logged by $myNickname. Take extra care! 🌸"
+                        )
+                    }
+                    
                     triggerDemoPartnerNotification("cycle")
+                    // Re-check estimated notifications to ensure accurate state sync
+                    checkAndNotifyEstimatedPeriods()
                 },
                 onFailure = { error -> showToast("Error: ${error.localizedMessage}") }
             )
@@ -615,7 +655,7 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val notification = androidx.core.app.NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(com.example.R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(body)
             .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
@@ -687,6 +727,18 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setTypingStatus(isTyping: Boolean) {
+        viewModelScope.launch {
+            repository.setTypingStatus(isTyping)
+        }
+    }
+
+    fun markMessagesAsSeen() {
+        viewModelScope.launch {
+            repository.markMessagesAsSeen()
+        }
+    }
+
     fun addStory(mediaType: String, textContent: String, mediaUrl: String? = null) {
         viewModelScope.launch {
             _isLoading.value = true
@@ -699,6 +751,22 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
                 },
                 onFailure = { error ->
                     showToast("Failed to share story: ${error.localizedMessage}")
+                }
+            )
+        }
+    }
+
+    fun deleteStory(storyId: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            val result = repository.deleteStory(storyId)
+            _isLoading.value = false
+            result.fold(
+                onSuccess = {
+                    showToast("Story deleted.")
+                },
+                onFailure = { error ->
+                    showToast("Failed to delete story: ${error.localizedMessage}")
                 }
             )
         }
@@ -718,9 +786,88 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
                 "cycle" -> repository.postPartnerNotification("🩺 Cycle Period Log", "$partnerName logged cycle updates.")
                 "mood" -> repository.postPartnerNotification("💖 Mood Reacted", "$partnerName reacted to your mood: ❤️")
                 "quiz" -> repository.postPartnerNotification("❓ Daily Couple Quiz", "$partnerName completed their quiz answer! Tap to reveal results!")
-                "chat" -> repository.postPartnerNotification("💬 Secure Chat", "$partnerName: That's amazing! ❤️", "chat")
+                "chat" -> {
+                    viewModelScope.launch {
+                        kotlinx.coroutines.delay(1000)
+                        repository.setTypingStatus(true)
+                        kotlinx.coroutines.delay(3500)
+                        repository.setTypingStatus(false)
+                        val responses = listOf(
+                            "Oh wow! That is so beautiful ❤️",
+                            "I'm so glad we are using this app!",
+                            "You are the best! 🥰",
+                            "Let's meet up soon!",
+                            "This secure chat is amazing, feels so private!"
+                        )
+                        repository.receiveDemoChatMessage(responses.random())
+                        repository.postPartnerNotification("💬 Secure Chat", "$partnerName: Sent a message", "chat")
+                    }
+                }
                 "story" -> repository.postPartnerNotification("🎥 Partner Story", "$partnerName posted a new story!")
             }
+        }
+    }
+
+    fun checkAndNotifyEstimatedPeriods() {
+        viewModelScope.launch {
+            // Wait for user details and cycle logs to load fully
+            kotlinx.coroutines.delay(2000)
+            val current = currentUser.value ?: return@launch
+            val isFemale = current.gender.lowercase() == "female"
+            val todayStr = java.time.LocalDate.now().toString()
+            
+            val sp = getApplication<Application>().getSharedPreferences("cycle_notifications", android.content.Context.MODE_PRIVATE)
+            
+            if (isFemale) {
+                val prediction = getPredictionsSelf()
+                if (prediction != null && prediction.predictedStartDate == todayStr) {
+                    val lastNotified = sp.getString("last_estimated_notified_date_${current.uid}", "")
+                    if (lastNotified != todayStr) {
+                        // Send her local notification
+                        repository.postPartnerNotification(
+                            "🌸 Your Cycle Tracker",
+                            "Your estimated periods should start from today 🌸. Remember to stay hydrated and take care!"
+                        )
+                        // Send her partner local notification
+                        val partner = partnerUser.value
+                        val myNickname = current.nickname.ifEmpty { "Emily 💖" }
+                        repository.postPartnerNotification(
+                            "🩺 Cycle Prediction Tracker",
+                            "$myNickname's estimated periods should start from today 🌸. Show her some extra love and care! ❤️"
+                        )
+                        sp.edit().putString("last_estimated_notified_date_${current.uid}", todayStr).apply()
+                    }
+                }
+            } else {
+                val partner = partnerUser.value
+                val isPartnerFemale = partner?.gender?.lowercase() == "female"
+                if (isPartnerFemale) {
+                    val prediction = getPredictionsPartner()
+                    if (prediction != null && prediction.predictedStartDate == todayStr) {
+                        val lastNotified = sp.getString("last_estimated_notified_date_${partner.uid}", "")
+                        if (lastNotified != todayStr) {
+                            val partnerNickname = partner.nickname.ifEmpty { "Emily 💖" }
+                            // Send him local notification
+                            repository.postPartnerNotification(
+                                "🩺 Cycle Prediction Tracker",
+                                "$partnerNickname's estimated periods should start from today 🌸. Show her some extra love and care! ❤️"
+                            )
+                            // Send her local notification as well
+                            repository.postPartnerNotification(
+                                "🌸 Your Cycle Tracker",
+                                "Your estimated periods should start from today 🌸. Remember to stay hydrated and take care!"
+                            )
+                            sp.edit().putString("last_estimated_notified_date_${partner.uid}", todayStr).apply()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun reactToMessage(messageId: String, reactionEmoji: String) {
+        viewModelScope.launch {
+            repository.reactToMessage(messageId, reactionEmoji)
         }
     }
 
