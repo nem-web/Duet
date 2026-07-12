@@ -146,7 +146,7 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
         activeDownloadJob = viewModelScope.launch {
             try {
                 _updateState.value = UpdateState.Downloading(0f)
-                val downloadId = UpdateManager.startApkDownload(getApplication(), info.apkUrl)
+                val downloadId = UpdateManager.startApkDownload(getApplication(), info.downloadUrl)
                 
                 val monitorResult = UpdateManager.monitorDownloadProgress(getApplication(), downloadId) { progress ->
                     _updateState.value = UpdateState.Downloading(progress)

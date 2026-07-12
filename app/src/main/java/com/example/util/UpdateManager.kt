@@ -19,11 +19,15 @@ import java.util.concurrent.TimeUnit
 
 data class UpdateInfo(
     val versionCode: Long = 0L,
-    val versionName: String = "",
-    val apkUrl: String = "",
-    val isMandatory: Boolean = false,
+    val minRequiredVersion: Long = 0L,
+    val downloadUrl: String = "",
+    val versionName: String = "1.1.0",
     val releaseNotes: String = ""
-)
+) {
+    fun isMandatory(installedVersion: Long): Boolean {
+        return installedVersion < minRequiredVersion
+    }
+}
 
 sealed interface UpdateState {
     object Idle : UpdateState
@@ -70,33 +74,33 @@ object UpdateManager {
     }
 
     /**
-     * Checks Firestore for update information under the "app_updates/latest" document path.
+     * Checks Firestore for update information under the "app_config/latest" document path.
      */
     suspend fun checkForUpdate(firestore: FirebaseFirestore?): Result<UpdateInfo?> {
         return withContext(Dispatchers.IO) {
             try {
                 val db = firestore ?: return@withContext Result.failure(Exception("Firestore is not initialized or unavailable"))
-                Log.d(TAG, "Checking Firestore for application updates...")
+                Log.d(TAG, "Checking Firestore 'app_config' for application updates...")
                 
-                val docRef = db.collection("app_updates").document("latest")
+                val docRef = db.collection("app_config").document("latest")
                 val documentSnapshot = Tasks.await(docRef.get(), 10, TimeUnit.SECONDS)
                 
                 if (!documentSnapshot.exists()) {
-                    Log.d(TAG, "No update document found in Firestore.")
+                    Log.d(TAG, "No update document found in Firestore 'app_config'.")
                     return@withContext Result.success(null)
                 }
                 
                 val versionCode = documentSnapshot.getLong("versionCode") ?: 0L
-                val versionName = documentSnapshot.getString("versionName") ?: ""
-                val apkUrl = documentSnapshot.getString("apkUrl") ?: ""
-                val isMandatory = documentSnapshot.getBoolean("isMandatory") ?: false
+                val minRequiredVersion = documentSnapshot.getLong("minRequiredVersion") ?: 0L
+                val downloadUrl = documentSnapshot.getString("downloadUrl") ?: ""
+                val versionName = documentSnapshot.getString("versionName") ?: "1.1.0"
                 val releaseNotes = documentSnapshot.getString("releaseNotes") ?: ""
                 
                 val updateInfo = UpdateInfo(
                     versionCode = versionCode,
+                    minRequiredVersion = minRequiredVersion,
+                    downloadUrl = downloadUrl,
                     versionName = versionName,
-                    apkUrl = apkUrl,
-                    isMandatory = isMandatory,
                     releaseNotes = releaseNotes
                 )
                 

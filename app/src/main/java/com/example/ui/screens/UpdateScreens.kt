@@ -53,15 +53,16 @@ fun AppUpdateDialog(viewModel: DuetViewModel) {
         
         is UpdateState.UpdateAvailable -> {
             val info = state.info
+            val isMandatory = info.isMandatory(UpdateManager.getInstalledVersionCode(context))
             Dialog(
                 onDismissRequest = {
-                    if (!info.isMandatory) {
+                    if (!isMandatory) {
                         viewModel.dismissUpdate()
                     }
                 },
                 properties = DialogProperties(
-                    dismissOnBackPress = !info.isMandatory,
-                    dismissOnClickOutside = !info.isMandatory
+                    dismissOnBackPress = !isMandatory,
+                    dismissOnClickOutside = !isMandatory
                 )
             ) {
                 Card(
@@ -135,7 +136,7 @@ fun AppUpdateDialog(viewModel: DuetViewModel) {
                             Spacer(modifier = Modifier.height(24.dp))
                         }
                         
-                        if (info.isMandatory) {
+                        if (isMandatory) {
                             Text(
                                 text = "This is a critical update. You must update to continue using Duet.",
                                 style = MaterialTheme.typography.bodySmall,
@@ -150,7 +151,7 @@ fun AppUpdateDialog(viewModel: DuetViewModel) {
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)
                         ) {
-                            if (!info.isMandatory) {
+                            if (!isMandatory) {
                                 OutlinedButton(
                                     onClick = { viewModel.dismissUpdate() },
                                     modifier = Modifier.weight(1f).testTag("update_cancel_btn")
@@ -251,19 +252,20 @@ fun AppUpdateDialog(viewModel: DuetViewModel) {
         is UpdateState.ReadyToInstall -> {
             val file = state.file
             val info = state.info
+            val isMandatory = info.isMandatory(UpdateManager.getInstalledVersionCode(context))
             
             // Recheck permission status
             val hasInstallPermission = UpdateManager.canRequestPackageInstalls(context)
             
             Dialog(
                 onDismissRequest = {
-                    if (!info.isMandatory) {
+                    if (!isMandatory) {
                         viewModel.dismissUpdate()
                     }
                 },
                 properties = DialogProperties(
-                    dismissOnBackPress = !info.isMandatory,
-                    dismissOnClickOutside = !info.isMandatory
+                    dismissOnBackPress = !isMandatory,
+                    dismissOnClickOutside = !isMandatory
                 )
             ) {
                 Card(
@@ -314,7 +316,7 @@ fun AppUpdateDialog(viewModel: DuetViewModel) {
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)
                         ) {
-                            if (!info.isMandatory) {
+                            if (!isMandatory) {
                                 OutlinedButton(
                                     onClick = { viewModel.dismissUpdate() },
                                     modifier = Modifier.weight(1f).testTag("install_dismiss_btn")
