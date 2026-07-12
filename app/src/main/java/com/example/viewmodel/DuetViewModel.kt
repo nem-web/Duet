@@ -113,28 +113,42 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
 
     fun checkAppUpdate() {
         viewModelScope.launch {
+            android.util.Log.d("DuetViewModel", "APP_UPDATE: Started update check")
+            
+            // Wait up to 5 seconds for Firebase to initialize if it's currently false
+            var attempts = 0
+            while (!isFirebaseInitialized.value && attempts < 10) {
+                android.util.Log.d("DuetViewModel", "APP_UPDATE: Waiting for Firebase to initialize (attempt $attempts)...")
+                kotlinx.coroutines.delay(500)
+                attempts++
+            }
+            
             if (!isFirebaseInitialized.value) {
-                android.util.Log.w("DuetViewModel", "Firebase is not initialized. Skipping update check.")
+                android.util.Log.w("DuetViewModel", "APP_UPDATE: Firebase is not initialized. Skipping update check.")
                 return@launch
             }
+            
             _updateState.value = UpdateState.Checking
             val result = UpdateManager.checkForUpdate(repository.getFirestoreInstance())
             result.fold(
                 onSuccess = { updateInfo ->
                     if (updateInfo != null) {
                         val installedCode = UpdateManager.getInstalledVersionCode(getApplication())
+                        android.util.Log.d("DuetViewModel", "APP_UPDATE: Installed version = $installedCode, Remote version = ${updateInfo.versionCode}")
                         if (updateInfo.versionCode > installedCode) {
-                            android.util.Log.d("DuetViewModel", "New update available: ${updateInfo.versionName} (${updateInfo.versionCode})")
+                            android.util.Log.d("DuetViewModel", "APP_UPDATE: Comparison result = UPDATE AVAILABLE")
                             _updateState.value = UpdateState.UpdateAvailable(updateInfo)
                         } else {
-                            android.util.Log.d("DuetViewModel", "App is up to date.")
+                            android.util.Log.d("DuetViewModel", "APP_UPDATE: Comparison result = UP TO DATE")
                             _updateState.value = UpdateState.Idle
                         }
                     } else {
+                        android.util.Log.d("DuetViewModel", "APP_UPDATE: No update information returned.")
                         _updateState.value = UpdateState.Idle
                     }
                 },
                 onFailure = { error ->
+                    android.util.Log.e("DuetViewModel", "APP_UPDATE: Update check failed.", error)
                     _updateState.value = UpdateState.Error(error.localizedMessage ?: "Unknown update check error")
                 }
             )
@@ -145,8 +159,9 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
         activeDownloadJob?.cancel()
         activeDownloadJob = viewModelScope.launch {
             try {
+                android.util.Log.d("DuetViewModel", "APP_UPDATE: User clicked Update. Download started.")
                 _updateState.value = UpdateState.Downloading(0f)
-                val downloadId = UpdateManager.startApkDownload(getApplication(), info.downloadUrl)
+                val downloadId = UpdateManager.startApkDownload(getApplication(), info.apkUrl)
                 
                 val monitorResult = UpdateManager.monitorDownloadProgress(getApplication(), downloadId) { progress ->
                     _updateState.value = UpdateState.Downloading(progress)
@@ -154,23 +169,28 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
                 
                 monitorResult.fold(
                     onSuccess = { file ->
+                        android.util.Log.d("DuetViewModel", "APP_UPDATE: Download succeeded. Ready to install.")
                         _updateState.value = UpdateState.ReadyToInstall(file, info)
                     },
                     onFailure = { error ->
+                        android.util.Log.e("DuetViewModel", "APP_UPDATE: Download failed.", error)
                         _updateState.value = UpdateState.Error(error.localizedMessage ?: "Failed to download update")
                     }
                 )
             } catch (e: Exception) {
+                android.util.Log.e("DuetViewModel", "APP_UPDATE: Exception during download.", e)
                 _updateState.value = UpdateState.Error(e.localizedMessage ?: "Exception during download")
             }
         }
     }
 
     fun installDownloadedUpdate(file: File) {
+        android.util.Log.d("DuetViewModel", "APP_UPDATE: Triggering installation of update APK.")
         UpdateManager.installApk(getApplication(), file)
     }
 
     fun dismissUpdate() {
+        android.util.Log.d("DuetViewModel", "APP_UPDATE: User dismissed update.")
         _updateState.value = UpdateState.Idle
     }
 

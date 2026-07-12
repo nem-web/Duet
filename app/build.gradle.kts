@@ -1,6 +1,4 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
-import java.util.Properties
-import java.io.FileInputStream
 
 plugins {
   alias(libs.plugins.android.application)
@@ -11,14 +9,6 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
-val keystoreProperties = Properties()
-
-val keystorePropertiesFile = project.file("keystore.properties")
-
-if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
-}
-
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -27,8 +17,8 @@ android {
     applicationId = "com.aistudio.duet.kxmpzq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 2
-    versionName = "1.0.1"
+    versionCode = 3
+    versionName = "1.0.2"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -40,32 +30,23 @@ android {
   }
 
   signingConfigs {
-
-    getByName("debug")
-
     create("release") {
-
-      if (keystoreProperties.isNotEmpty()) {
-
-        storeFile = file(keystoreProperties["storeFile"] as String)
-        storePassword = keystoreProperties["storePassword"] as String
-        keyAlias = keystoreProperties["keyAlias"] as String
-        keyPassword = keystoreProperties["keyPassword"] as String
-
-      }
+      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
+      storeFile = file(keystorePath)
+      storePassword = System.getenv("STORE_PASSWORD")
+      keyAlias = "upload"
+      keyPassword = System.getenv("KEY_PASSWORD")
+    }
+    create("debugConfig") {
+      storeFile = file("${rootDir}/debug.keystore")
+      storePassword = "android"
+      keyAlias = "androiddebugkey"
+      keyPassword = "android"
     }
   }
 
   buildTypes {
-
-    debug {
-      signingConfig = signingConfigs.getByName("debug")
-    }
-
     release {
-
-      isMinifyEnabled = false
-      isShrinkResources = false
       isCrunchPngs = false
 
       proguardFiles(
@@ -76,7 +57,6 @@ android {
       signingConfig = signingConfigs.getByName("release")
     }
   }
-
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
