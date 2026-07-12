@@ -175,6 +175,8 @@ class DuetRepository(private val context: Context) {
     private var userListener: ListenerRegistration? = null
     private var partnerListener: ListenerRegistration? = null
     
+    fun getFirestoreInstance(): FirebaseFirestore? = firestore
+    
     // Flags to track initial loads of snapshot listeners to avoid notifying on existing items
     private var isInitialEvents = true
     private var isInitialTodos = true

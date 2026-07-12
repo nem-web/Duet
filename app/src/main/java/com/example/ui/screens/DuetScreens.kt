@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -245,6 +246,9 @@ fun DuetAppLayout(viewModel: DuetViewModel) {
                     }
                 }
             }
+
+            // Direct APK Update Dialog overlay
+            AppUpdateDialog(viewModel = viewModel)
 
             // Quick Add Moment Dialog overlay
             if (showAddEventDialog) {
@@ -2470,7 +2474,36 @@ fun ProfileScreen(viewModel: DuetViewModel) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // App Version & Updates Setting Section
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("App Version & Updates", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                val currentVerName = com.example.util.UpdateManager.getInstalledVersionName(LocalContext.current)
+                val currentVerCode = com.example.util.UpdateManager.getInstalledVersionCode(LocalContext.current)
+                
+                Text("Installed Version: v$currentVerName (Build $currentVerCode)", style = MaterialTheme.typography.bodySmall)
+                Text("Update source: Firebase Firestore & secure direct download", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                Button(
+                    onClick = { viewModel.checkAppUpdate() },
+                    modifier = Modifier.fillMaxWidth().testTag("check_updates_btn"),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                ) {
+                    Icon(Icons.Default.SystemUpdate, contentDescription = "Check for updates")
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Check for Updates Now")
+                }
+            }
+        }
 
+        Spacer(modifier = Modifier.height(24.dp))
 
         // 4. Critical actions: Unpairing & Sign Out
         Row(

@@ -23,6 +23,10 @@ import com.example.model.TodoComment
 import com.example.model.EncryptedMessage
 import com.example.model.Story
 import com.example.repository.DuetRepository
+import com.example.util.UpdateManager
+import com.example.util.UpdateState
+import com.example.util.UpdateInfo
+import java.io.File
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -101,6 +105,75 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedThemeId = MutableStateFlow("warm_rose")
     val selectedThemeId: StateFlow<String> = _selectedThemeId.asStateFlow()
 
+    // App Update system states
+    private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
+    val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
+
+    private var activeDownloadJob: kotlinx.coroutines.Job? = null
+
+    fun checkAppUpdate() {
+        viewModelScope.launch {
+            if (!isFirebaseInitialized.value) {
+                android.util.Log.w("DuetViewModel", "Firebase is not initialized. Skipping update check.")
+                return@launch
+            }
+            _updateState.value = UpdateState.Checking
+            val result = UpdateManager.checkForUpdate(repository.getFirestoreInstance())
+            result.fold(
+                onSuccess = { updateInfo ->
+                    if (updateInfo != null) {
+                        val installedCode = UpdateManager.getInstalledVersionCode(getApplication())
+                        if (updateInfo.versionCode > installedCode) {
+                            android.util.Log.d("DuetViewModel", "New update available: ${updateInfo.versionName} (${updateInfo.versionCode})")
+                            _updateState.value = UpdateState.UpdateAvailable(updateInfo)
+                        } else {
+                            android.util.Log.d("DuetViewModel", "App is up to date.")
+                            _updateState.value = UpdateState.Idle
+                        }
+                    } else {
+                        _updateState.value = UpdateState.Idle
+                    }
+                },
+                onFailure = { error ->
+                    _updateState.value = UpdateState.Error(error.localizedMessage ?: "Unknown update check error")
+                }
+            )
+        }
+    }
+
+    fun downloadAndPrepareUpdate(info: UpdateInfo) {
+        activeDownloadJob?.cancel()
+        activeDownloadJob = viewModelScope.launch {
+            try {
+                _updateState.value = UpdateState.Downloading(0f)
+                val downloadId = UpdateManager.startApkDownload(getApplication(), info.apkUrl)
+                
+                val monitorResult = UpdateManager.monitorDownloadProgress(getApplication(), downloadId) { progress ->
+                    _updateState.value = UpdateState.Downloading(progress)
+                }
+                
+                monitorResult.fold(
+                    onSuccess = { file ->
+                        _updateState.value = UpdateState.ReadyToInstall(file, info)
+                    },
+                    onFailure = { error ->
+                        _updateState.value = UpdateState.Error(error.localizedMessage ?: "Failed to download update")
+                    }
+                )
+            } catch (e: Exception) {
+                _updateState.value = UpdateState.Error(e.localizedMessage ?: "Exception during download")
+            }
+        }
+    }
+
+    fun installDownloadedUpdate(file: File) {
+        UpdateManager.installApk(getApplication(), file)
+    }
+
+    fun dismissUpdate() {
+        _updateState.value = UpdateState.Idle
+    }
+
     init {
         // Automatically set a pending code state if a couple document has one and we are user1
         viewModelScope.launch {
@@ -123,6 +196,8 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             kotlinx.coroutines.delay(1000)
             checkAndNotifyEstimatedPeriods()
+            // Check for app updates automatically on startup
+            checkAppUpdate()
         }
     }
 
