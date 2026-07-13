@@ -123,6 +123,7 @@ class DuetViewModel(application: Application) : AndroidViewModel(application) {
                 onSuccess = { updateInfo ->
                     if (updateInfo != null) {
                         val installedCode = UpdateManager.getInstalledVersionCode(getApplication())
+                        android.util.Log.d("DuetViewModel", "Installed=$installedCode Remote=${updateInfo.versionCode}") // 👈 ADD THIS
                         if (updateInfo.versionCode > installedCode) {
                             android.util.Log.d("DuetViewModel", "New update available: ${updateInfo.versionName} (${updateInfo.versionCode})")
                             _updateState.value = UpdateState.UpdateAvailable(updateInfo)

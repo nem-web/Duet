@@ -82,7 +82,7 @@ object UpdateManager {
                 val db = firestore ?: return@withContext Result.failure(Exception("Firestore is not initialized or unavailable"))
                 Log.d(TAG, "Checking Firestore 'app_config' for application updates...")
                 
-                val docRef = db.collection("app_config").document("latest")
+                val docRef = db.collection("app_config").document("android")
                 val documentSnapshot = Tasks.await(docRef.get(), 10, TimeUnit.SECONDS)
                 
                 if (!documentSnapshot.exists()) {
@@ -103,6 +103,12 @@ object UpdateManager {
                     versionName = versionName,
                     releaseNotes = releaseNotes
                 )
+                Log.d(TAG, "========== FIRESTORE UPDATE ==========")
+                Log.d(TAG, "versionCode = ${updateInfo.versionCode}")
+                Log.d(TAG, "versionName = ${updateInfo.versionName}")
+                Log.d(TAG, "minRequiredVersion = ${updateInfo.minRequiredVersion}")
+                Log.d(TAG, "downloadUrl = ${updateInfo.downloadUrl}")
+                Log.d(TAG, "releaseNotes = ${updateInfo.releaseNotes}")
                 
                 Log.d(TAG, "Fetched update details: $updateInfo")
                 Result.success(updateInfo)
