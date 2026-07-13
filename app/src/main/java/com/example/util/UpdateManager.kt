@@ -20,12 +20,13 @@ import java.util.concurrent.TimeUnit
 data class UpdateInfo(
     val versionCode: Long = 0L,
     val minRequiredVersion: Long = 0L,
-    val downloadUrl: String = "",
+    val forceUpdate: Boolean = false,
+    val apkUrl: String = "",
     val versionName: String = "1.1.0",
     val releaseNotes: String = ""
 ) {
     fun isMandatory(installedVersion: Long): Boolean {
-        return installedVersion < minRequiredVersion
+        return forceUpdate || installedVersion < minRequiredVersion
     }
 }
 
@@ -74,40 +75,96 @@ object UpdateManager {
     }
 
     /**
-     * Checks Firestore for update information under the "app_config/latest" document path.
+     * Checks Firestore for update information. It checks the "app_config/android" document first,
+     * and falls back to "app_config/latest" if "android" does not exist or has an empty versionCode.
      */
     suspend fun checkForUpdate(firestore: FirebaseFirestore?): Result<UpdateInfo?> {
         return withContext(Dispatchers.IO) {
             try {
                 val db = firestore ?: return@withContext Result.failure(Exception("Firestore is not initialized or unavailable"))
-                Log.d(TAG, "Checking Firestore 'app_config' for application updates...")
+                Log.d(TAG, "APP_UPDATE: Firestore initialized. Reading app_config documents...")
                 
-                val docRef = db.collection("app_config").document("android")
-                val documentSnapshot = Tasks.await(docRef.get(), 10, TimeUnit.SECONDS)
+                // Helper to get Long safely (handles Number, String)
+                fun getLongSafe(snapshot: com.google.firebase.firestore.DocumentSnapshot, field: String): Long {
+                    return try {
+                        snapshot.getLong(field) ?: snapshot.getString(field)?.toLongOrNull() ?: 0L
+                    } catch (e: Exception) {
+                        try {
+                            snapshot.getString(field)?.toLongOrNull() ?: 0L
+                        } catch (ex: Exception) {
+                            0L
+                        }
+                    }
+                }
+
+                // Helper to get Boolean safely (handles Boolean, String)
+                fun getBooleanSafe(snapshot: com.google.firebase.firestore.DocumentSnapshot, field: String): Boolean {
+                    return try {
+                        snapshot.getBoolean(field) ?: snapshot.getString(field)?.toBooleanStrictOrNull() ?: false
+                    } catch (e: Exception) {
+                        try {
+                            snapshot.getString(field)?.toBooleanStrictOrNull() ?: false
+                        } catch (ex: Exception) {
+                            false
+                        }
+                    }
+                }
+
+                // Helper to get String safely (handles String, or anything toString)
+                fun getStringSafe(snapshot: com.google.firebase.firestore.DocumentSnapshot, field: String): String {
+                    return try {
+                        snapshot.getString(field) ?: snapshot.get(field)?.toString() ?: ""
+                    } catch (e: Exception) {
+                        ""
+                    }
+                }
+
+                var docRef = db.collection("app_config").document("android")
+                var documentSnapshot = Tasks.await(docRef.get(), 10, TimeUnit.SECONDS)
+                var exists = documentSnapshot.exists()
+                var versionCode = if (exists) getLongSafe(documentSnapshot, "versionCode") else 0L
                 
-                if (!documentSnapshot.exists()) {
-                    Log.d(TAG, "No update document found in Firestore 'app_config'.")
+                if (!exists || versionCode == 0L) {
+                    Log.d(TAG, "APP_UPDATE: 'android' document does not exist or is empty. Trying 'latest' document...")
+                    val fallbackRef = db.collection("app_config").document("latest")
+                    val fallbackSnapshot = Tasks.await(fallbackRef.get(), 10, TimeUnit.SECONDS)
+                    if (fallbackSnapshot.exists()) {
+                        val fallbackVersionCode = getLongSafe(fallbackSnapshot, "versionCode")
+                        if (fallbackVersionCode > 0L) {
+                            documentSnapshot = fallbackSnapshot
+                            exists = true
+                            versionCode = fallbackVersionCode
+                            Log.d(TAG, "APP_UPDATE: Found valid update config in 'latest' document.")
+                        }
+                    }
+                }
+                
+                if (!exists) {
+                    Log.d(TAG, "APP_UPDATE: Neither 'android' nor 'latest' document found in Firestore 'app_config'.")
                     return@withContext Result.success(null)
                 }
                 
-                val versionCode = documentSnapshot.getLong("versionCode") ?: 0L
-                val minRequiredVersion = documentSnapshot.getLong("minRequiredVersion") ?: 0L
-                val downloadUrl = documentSnapshot.getString("downloadUrl") ?: ""
-                val versionName = documentSnapshot.getString("versionName") ?: "1.1.0"
-                val releaseNotes = documentSnapshot.getString("releaseNotes") ?: ""
+                Log.d(TAG, "APP_UPDATE: App config document read successfully.")
+                
+                val minRequiredVersion = getLongSafe(documentSnapshot, "minRequiredVersion")
+                val forceUpdate = getBooleanSafe(documentSnapshot, "forceUpdate")
+                val apkUrl = getStringSafe(documentSnapshot, "apkUrl").ifEmpty { getStringSafe(documentSnapshot, "downloadUrl") }
+                val versionName = getStringSafe(documentSnapshot, "versionName").ifEmpty { "1.1.0" }
+                val releaseNotes = getStringSafe(documentSnapshot, "releaseNotes")
                 
                 val updateInfo = UpdateInfo(
                     versionCode = versionCode,
                     minRequiredVersion = minRequiredVersion,
-                    downloadUrl = downloadUrl,
+                    forceUpdate = forceUpdate,
+                    apkUrl = apkUrl,
                     versionName = versionName,
                     releaseNotes = releaseNotes
                 )
                 
-                Log.d(TAG, "Fetched update details: $updateInfo")
+                Log.d(TAG, "APP_UPDATE: Remote version = $versionCode, forceUpdate = $forceUpdate, minRequiredVersion = $minRequiredVersion, apkUrl = $apkUrl")
                 Result.success(updateInfo)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to check update from Firestore", e)
+                Log.e(TAG, "APP_UPDATE: Failed to check update from Firestore", e)
                 Result.failure(e)
             }
         }
@@ -140,7 +197,7 @@ object UpdateManager {
         }
 
         val downloadId = downloadManager.enqueue(request)
-        Log.d(TAG, "Enqueued update download ID: $downloadId")
+        Log.d(TAG, "APP_UPDATE: Download started. Enqueued update download ID: $downloadId")
         return downloadId
     }
 
