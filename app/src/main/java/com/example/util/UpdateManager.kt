@@ -103,12 +103,6 @@ object UpdateManager {
                     versionName = versionName,
                     releaseNotes = releaseNotes
                 )
-                Log.d(TAG, "========== FIRESTORE UPDATE ==========")
-                Log.d(TAG, "versionCode = ${updateInfo.versionCode}")
-                Log.d(TAG, "versionName = ${updateInfo.versionName}")
-                Log.d(TAG, "minRequiredVersion = ${updateInfo.minRequiredVersion}")
-                Log.d(TAG, "downloadUrl = ${updateInfo.downloadUrl}")
-                Log.d(TAG, "releaseNotes = ${updateInfo.releaseNotes}")
                 
                 Log.d(TAG, "Fetched update details: $updateInfo")
                 Result.success(updateInfo)
